@@ -12,6 +12,8 @@ Here are the design files for my Z-height sensor board add-on to the RepRapPro O
 
 Work is in progress to adapt the board for capacitive height sensing.
 
+For assembly and usage instructions, please visit: http://miscsolutions.wordpress.com/assembling-and-using-the-eschertech-ormerod-hot-end-board/
+
 I supply bare boards, kits of parts with all SMD components ready-mounted, and fully assembled boards. Contact me via the RepRap Ormerod forum at http://forums.reprap.org/list.php?340 by sending a personal message to dc42.
 
 
