@@ -9,8 +9,7 @@ To use the Ormerod sensor board you will need to print three parts:
 https://github.com/iamburny/OrmerodUpgrades/blob/master/one-peice-hotend-airduct-with-new-irsensor.stl
 https://github.com/iamburny/OrmerodUpgrades/blob/master/one-peice-hotend-airduct-with-new-irsensor.scad
 
-3. Insulator. This prevents the board from shorting against the z-threaded rod or other metal parts if the print head moves beyond the intended x-homing position. Alternatively you can use Kim brown's safety cover, his files are here:
-http://www.thingiverse.com/thing:272634
+3. Insulator. This prevents the board from shorting against the z-threaded rod or other metal parts if the print head moves beyond the intended x-homing position. Alternatively you can use Kim brown's safety cover, his files are http://www.thingiverse.com/thing:272634 for kit 2, and http://www.thingiverse.com/thing:273055 for other kits.
 
 The other parts in this folder are:
 
