@@ -11,7 +11,9 @@ To use the Ormerod sensor board you will need to print three parts:
 
 3(a) Insulator. This prevents the board from shorting against the z-threaded rod or other metal parts if the print head moves beyond the intended x-homing position. Alternatively you can use Kim brown's safety cover, his files are http://www.thingiverse.com/thing:272634 for kit 2/3/4, and http://www.thingiverse.com/thing:273055 for kits 4+ and 5.
 
-3(b) Thick insulator, for use when the ultrasonic sensor is mounted on the pcb behind and slightly to the left of the IR sensor. This is thicker and longer than 3(a) to ensure that it touches the Z-nut trap before the ultrasonic sensor touches the threaded rod. it also includes a cutout for the sensor wire.
+3(b) Thicker insulator which includes a holder for the ultrasonic transducer. This is thicker and longer than 3(a) to ensure that it touches the Z-nut trap before the ultrasonic sensor touches the threaded rod. If you use this part, you may have to extend the x-homing tab even further in the X-direction than the modified x-motor bracket already does, for example by sticking a piece of white card on top of it.
+
+3(c) Thick insulator, for use when the ultrasonic sensor is glued on the pcb behind and slightly to the left of the IR sensor.
 
 Also in this folder is a board holder. This can be fixed to the back of a solder stencil, allowing boards to be accurately aligned with the stencil prior to application of solder paste.
 
