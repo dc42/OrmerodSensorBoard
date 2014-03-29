@@ -17,6 +17,6 @@ To use the Ormerod sensor board you will need to print three parts:
 
 Also in this folder:
 
-BoardHolder: This can be fixed to the back of a solder stencil, allowing boards to be accurately aligned with the stencil prior to application of solder paste.
+BoardHolder.stl: This can be fixed to the back of a solder stencil, allowing boards to be accurately aligned with the stencil prior to application of solder paste.
 
 Many thanks to johneato for producing the STLs for the modified x-motor bracket and modified heatsink duct.
