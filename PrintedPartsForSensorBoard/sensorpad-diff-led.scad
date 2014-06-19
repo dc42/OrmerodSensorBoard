@@ -1,8 +1,9 @@
 // X-axis homing target for dc42's modulated IR
 
 $fn=25;
-thickness = 2;
-padWidth=17;
+thickness = 1.92;
+screwPadThickness = 0.24;
+padWidth=14;
 padOffset = 28;
 padHeight=11;
 padDepth=22;
@@ -17,11 +18,11 @@ difference() {
 			cube([padWidth,thickness,padDepth]);
       	translate([padOffset,2,thickness])
 			cube([thickness,padHeight,padDepth]);
-		translate([5,5,thickness]) cylinder(h=1,r=3);
-		translate([5,15,thickness]) cylinder(h=1,r=3);
+		translate([5,5,thickness-overlap]) cylinder(h=screwPadThickness+overlap,r=3);
+		translate([5,15,thickness-overlap]) cylinder(h=screwPadThickness+overlap,r=3);
 	}
-	translate([5,5,-overlap]) cylinder(h=thickness+1+2*overlap,r=1.7);
-	translate([5,15,-overlap]) cylinder(h=thickness+1+2*overlap,r=1.7);
+	translate([5,5,-overlap]) cylinder(h=thickness+screwPadThickness+2*overlap,r=1.5);
+	translate([5,15,-overlap]) cylinder(h=thickness+screwPadThickness+2*overlap,r=1.5);
 	translate([15,6,-overlap]) cube([8.5,8,thickness+2*overlap]);
 	translate([padOffset-overlap,0,6])
 		rotate([59,0,0]) cube([thickness+2*overlap,30,30]);
