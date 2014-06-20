@@ -3,7 +3,7 @@
 thickness=1.2;
 xborder=50;
 yborder=50;
-yrepeat=50.00;	// 1st stencil measured 50.15, frame printed @50mm measured 49.80
+yrepeat=50.15;	// 1st stencil measured 50.15, frame printed @50mm measured 49.80
 height=82.07375;
 width=28.09875;
 nibWidth=3.175;
