@@ -1,6 +1,6 @@
 // Ormerod nozzle mount
 
-numNozzles = 1;				// how many nozzles (must be 1 or 2)
+numNozzles = 2;				// how many nozzles (must be 1 or 2)
 nozzleSeparation2n = 14;	// spacing between nozzles, if more than one
 width2n = 50;
 nozzleScrewHoleSeparation2n = 40;
