@@ -3,7 +3,7 @@
 $fn=25;
 thickness = 1.92;
 screwPadThickness = 0.24;
-padWidth=12;
+padWidth=13;
 padOffset = 28;
 padHeight=11;
 padDepth=22;
