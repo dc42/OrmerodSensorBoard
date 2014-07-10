@@ -15,7 +15,7 @@ xCarriageScrewHoleOffset = 7;
 xCarriageScrewHoleSeparation = 15;
 m3clearance = 3.4;
 m3head = 6.5;
-bowdenClearance = 4.2;
+bowdenClearance = 5.2;
 
 overlap = 1;
 tinyOverlap = 0.01;
@@ -26,16 +26,16 @@ nozzleScrewHoleSeparation = (numNozzles == 2)
 									? nozzleScrewHoleSeparation2n : nozzleScrewHoleSeparation1n;
 
 module xCarriageScrewHole() {
-	translate([0,0,-overlap]) cylinder(r=m3clearance/2,h=height+2*overlap,$fn=16);
-	translate([0,0,smallHeight-tinyOverlap]) cylinder(r=m3head/2,h=height+2*overlap,$fn=16);
+	translate([0,0,-overlap]) cylinder(r=m3clearance/2,h=height+2*overlap,$fn=24);
+	translate([0,0,smallHeight-tinyOverlap]) cylinder(r=m3head/2,h=height+2*overlap,$fn=24);
 	translate([0,0,smallHeight-(m3head-m3clearance)/2])
-		cylinder(r1=m3clearance/2,r2=m3head/2,h=(m3head - m3clearance)/2,$fn=16);
+		cylinder(r1=m3clearance/2,r2=m3head/2,h=(m3head - m3clearance)/2,$fn=24);
 }
 
 module bowdenSlot() {
 	translate([-overlap,0,0])
 		union () {
-			rotate([0,90,0]) cylinder(r=bowdenClearance/2,h=mainDepth + 2*overlap, $fn=16);
+			rotate([0,90,0]) cylinder(r=bowdenClearance/2,h=mainDepth + 2*overlap, $fn=24);
 			translate([0,-bowdenClearance/2,0])
 				cube([mainDepth + 2*overlap,bowdenClearance,lots]);
 		}
@@ -56,9 +56,9 @@ difference () {
 	translate([xCarriageScrewHoleOffset,-xCarriageScrewHoleSeparation/2,0])
 		xCarriageScrewHole();
 	translate([-overlap,-nozzleScrewHoleSeparation/2,nozzleScrewHoleOffset])
-		rotate([0,90,0]) cylinder(r=m3clearance/2,h=mainDepth + 2*overlap, $fn=16);
+		rotate([0,90,0]) cylinder(r=m3clearance/2,h=mainDepth + 2*overlap, $fn=24);
 	translate([-overlap,nozzleScrewHoleSeparation/2,nozzleScrewHoleOffset])
-		rotate([0,90,0]) cylinder(r=m3clearance/2,h=mainDepth + 2*overlap, $fn=16);
+		rotate([0,90,0]) cylinder(r=m3clearance/2,h=mainDepth + 2*overlap, $fn=24);
 	if (numNozzles == 2) {
 		translate([0,-nozzleSeparation2n/2,nozzleScrewHoleOffset]) bowdenSlot();
 		translate([0,nozzleSeparation2n/2,nozzleScrewHoleOffset]) bowdenSlot();
