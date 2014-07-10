@@ -12,8 +12,8 @@ Enc_X4_stacked=true;			//Set true to accommodate Duet+DuetX4 boards, false for D
 Enc_hollowbase=false;			//Set true to cutout base
 Enc_wall_cutout=false;			//Set true to cut out cable wall
 Enc_extra_width=8.0;			//Amount of extra width to give separate PCB mount, if 0 then like standard
-Enc_ventillation=2.5;			//If non zero set size of ventilation hole size
-Enc_ventillation_spacing=6.0;	//Spacing of vent holes, should be > double ventillation size
+Enc_ventillation=3;				//If non zero set size of ventilation hole size
+Enc_ventillation_spacing=8.0;	//Spacing of vent holes, should be > double ventillation size
 Enc_basic_inner_height=18.5;	//Inner depth (x) of the enclosure when Enc_X4 is false (18.0 in RRP original)
 Enc_X4_separation=6.5;			//Duet and X4 boards are separated by this less one PCB thickness
 Enc_5V_cutout=false;			//Enables cutout for 5V connection
@@ -21,16 +21,16 @@ Enc_5V_cutout=false;			//Enables cutout for 5V connection
 //PC mount parameters
 Enc_X4_standoff=16;				//How far the X4 board stands off from the base
 Enc_duet_standoff=(Enc_X4_stacked) ? Enc_X4_standoff+Enc_X4_separation : 2.5;
-Enc_standoff_radius=3.5;
+Enc_standoff_radius=3.6;		// increased because if left at 3.5, slic3r tends to generate 2 circles instead of 3
 
 //Main dimensions
 Enc_inner_height=(Enc_X4_stacked) ? Enc_basic_inner_height+Enc_duet_standoff : Enc_basic_inner_height;
-Enc_inner_length=125.0;		//Inner length (y) of the enclosure
+Enc_inner_length=125.0;			//Inner length (y) of the enclosure
 Enc_innerduet_width=102.0;		//Duet nominal width
 Enc_inner_width=Enc_innerduet_width+Enc_extra_width; // Derived real width
 Enc_bottomshelf_width=3.0;		//shelf width under PCB
-Enc_base=3.0;					//Thickness of base under PCB
-Enc_wall=3.0;					//Thickness of the walls
+Enc_base=3.0;						//Thickness of base under PCB
+Enc_wall=3.0;						//Thickness of the walls
 Enc_upperlid_groove = 1.0;		//Grooves in wall for lid
 Enc_upperlid_height=3.7;
 Enc_upperlock_height=0.5;		//little wedge to retain acrylic
@@ -38,6 +38,7 @@ Enc_upperlock_width=3.0;
 Enc_lidfoot_length=5.0;
 Enc_sidecutout_offset=8.5;		//Where to cutout wall for cable access
 Enc_sidecutout_length=106.0;
+Enc_top_extra = (Enc_X4_stacked) ? 1.0 : 0.0;	// extra clearance at top for ribbon cable
 
 //Mounting Holes 
 Enc_holes_radius=2.25;
@@ -89,13 +90,13 @@ include <MCAD/boxes.scad>;
 module baseBox() {
 	difference() {
 		//Start with solid roundex box
-		translate([(Enc_inner_length+2*Enc_wall)/2,(Enc_inner_width+2*Enc_wall)/2,(Enc_inner_height+Enc_base)/2])
-			roundedBox([Enc_inner_length+2*Enc_wall,Enc_inner_width+2*Enc_wall,Enc_inner_height+Enc_base], 1, false);
+		translate([(Enc_inner_length+2*Enc_wall)/2,(Enc_inner_width+2*Enc_wall)/2-Enc_top_extra,(Enc_inner_height+Enc_base)/2])
+			roundedBox([Enc_inner_length+2*Enc_wall,Enc_inner_width+2*Enc_wall+Enc_top_extra,Enc_inner_height+Enc_base], 1, false);
 		//Hollow out with another
-		translate([(Enc_inner_length)/2+Enc_wall,(Enc_inner_width)/2+Enc_wall,(Enc_inner_height+Enc_base)/2+Enc_base])
-			roundedBox([Enc_inner_length,Enc_inner_width,Enc_inner_height+Enc_base], 1, false);
+		translate([(Enc_inner_length)/2+Enc_wall,(Enc_inner_width)/2+Enc_wall-Enc_top_extra,(Enc_inner_height+Enc_base)/2+Enc_base])
+			roundedBox([Enc_inner_length,Enc_inner_width+Enc_top_extra,Enc_inner_height+Enc_base], 1, false);
 		//Hollow out for top lip
-		translate([Enc_wall-Enc_upperlid_groove,-0.1,Enc_base+Enc_inner_height-Enc_upperlid_height])
+		translate([Enc_wall-Enc_upperlid_groove,-0.1-Enc_top_extra,Enc_base+Enc_inner_height-Enc_upperlid_height])
 			cube([Enc_inner_length+2*Enc_upperlid_groove,Enc_innerduet_width+Enc_wall+Enc_upperlid_groove+0.1,Enc_upperlid_height+0.2]);
 		//Cut out the base if needed
 		if(Enc_hollowbase) {
@@ -176,12 +177,12 @@ module mountingHoles() {
 						Enc_base,false,true,Enc_duet_standoff);
 	}
 	if (Enc_X4_stacked) {
-		//Mounting holes for X4
+		//Mounting holes for X4. The lower holes are 2mm further apart than the upper holes and the holes on the Duet.
 		mountingHoleX4(Enc_holes_offsets,Enc_holes_offsets+14.5,Enc_base,false,true,Enc_X4_standoff);
 		mountingHoleX4(Enc_inner_length+2*Enc_wall-Enc_holes_offsets,Enc_holes_offsets+14.5,Enc_base,false,true,Enc_X4_standoff);
-		mountingHoleX4(Enc_holes_offsets,Enc_innerduet_width+2*Enc_wall-Enc_holes_offsets-16.5,
+		mountingHoleX4(Enc_holes_offsets-1,Enc_innerduet_width+2*Enc_wall-Enc_holes_offsets-16.5,
 						Enc_base,false,true,Enc_X4_standoff);	
-		mountingHoleX4(Enc_inner_length+2*Enc_wall-Enc_holes_offsets,Enc_innerduet_width+2*Enc_wall-Enc_holes_offsets-16.5,
+		mountingHoleX4(Enc_inner_length+2*Enc_wall-Enc_holes_offsets+1,Enc_innerduet_width+2*Enc_wall-Enc_holes_offsets-16.5,
 						Enc_base,false,true,Enc_X4_standoff);
 	}
 	//External hole
@@ -231,11 +232,11 @@ module mountingStands() {
 		//Add stands for X4 board
 		mountingStand(Enc_holes_offsets,Enc_holes_offsets+14.5,Enc_base,-45,
 							Enc_X4_standoff,0);
-		mountingStand(Enc_holes_offsets,Enc_innerduet_width+2*Enc_wall-Enc_holes_offsets-16.5,Enc_base,-135,
+		mountingStand(Enc_holes_offsets-1,Enc_innerduet_width+2*Enc_wall-Enc_holes_offsets-16.5,Enc_base,-135,
 							Enc_X4_standoff,0);
 		mountingStand(Enc_inner_length+2*Enc_wall-Enc_holes_offsets,Enc_holes_offsets+14.5,Enc_base,45,
 							Enc_X4_standoff,0);
-		mountingStand(Enc_inner_length+2*Enc_wall-Enc_holes_offsets,Enc_innerduet_width+2*Enc_wall-Enc_holes_offsets-16.5,Enc_base,135,
+		mountingStand(Enc_inner_length+2*Enc_wall-Enc_holes_offsets+1,Enc_innerduet_width+2*Enc_wall-Enc_holes_offsets-16.5,Enc_base,135,
 							Enc_X4_standoff,0);
 	}
 	//External mount
@@ -291,7 +292,7 @@ module ventillation(l) {
 		for(z=[Enc_base+2*Enc_ventillation
 				: Enc_ventillation_spacing
 				: Enc_inner_height+Enc_base-Enc_ventillation-Enc_upperlid_height]) {
-			translate([x,-overlap,z]) rotate([0,45,0])
+			translate([x,-overlap-Enc_top_extra,z]) rotate([0,45,0])
 				cube([Enc_ventillation,Enc_wall+2*overlap,Enc_ventillation]);
 			translate([x,l+Enc_wall-overlap,z]) rotate([0,45,0])
 				cube([Enc_ventillation,Enc_wall+2*overlap,Enc_ventillation]);
