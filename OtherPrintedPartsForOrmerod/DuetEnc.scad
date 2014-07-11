@@ -27,6 +27,9 @@ Enc_standoff_radius=3.6;		// increased because if left at 3.5, slic3r tends to g
 Enc_inner_height=(Enc_X4_stacked) ? Enc_basic_inner_height+Enc_duet_standoff : Enc_basic_inner_height;
 Enc_inner_length=125.0;			//Inner length (y) of the enclosure
 Enc_innerduet_width=102.0;		//Duet nominal width
+Enc_lid_width=(Enc_extra_width==0) 
+	? Enc_innerduet_width+Enc_wall+Enc_upperlid_groove
+	: 107.7;	// if not generating lid feet cutouts, slot needs to be longer
 Enc_inner_width=Enc_innerduet_width+Enc_extra_width; // Derived real width
 Enc_bottomshelf_width=3.0;		//shelf width under PCB
 Enc_base=3.0;						//Thickness of base under PCB
@@ -34,7 +37,7 @@ Enc_wall=3.0;						//Thickness of the walls
 Enc_upperlid_groove = 1.0;		//Grooves in wall for lid
 Enc_upperlid_height=3.7;
 Enc_upperlock_height=0.5;		//little wedge to retain acrylic
-Enc_upperlock_width=3.0;
+Enc_upperlock_width=5.0;
 Enc_lidfoot_length=5.0;
 Enc_sidecutout_offset=8.5;		//Where to cutout wall for cable access
 Enc_sidecutout_length=106.0;
@@ -90,14 +93,14 @@ include <MCAD/boxes.scad>;
 module baseBox() {
 	difference() {
 		//Start with solid roundex box
-		translate([(Enc_inner_length+2*Enc_wall)/2,(Enc_inner_width+2*Enc_wall)/2-Enc_top_extra,(Enc_inner_height+Enc_base)/2])
+		translate([(Enc_inner_length+2*Enc_wall)/2,(Enc_inner_width+2*Enc_wall+Enc_top_extra)/2-Enc_top_extra,(Enc_inner_height+Enc_base)/2])
 			roundedBox([Enc_inner_length+2*Enc_wall,Enc_inner_width+2*Enc_wall+Enc_top_extra,Enc_inner_height+Enc_base], 1, false);
 		//Hollow out with another
 		translate([(Enc_inner_length)/2+Enc_wall,(Enc_inner_width)/2+Enc_wall-Enc_top_extra,(Enc_inner_height+Enc_base)/2+Enc_base])
 			roundedBox([Enc_inner_length,Enc_inner_width+Enc_top_extra,Enc_inner_height+Enc_base], 1, false);
 		//Hollow out for top lip
 		translate([Enc_wall-Enc_upperlid_groove,-0.1-Enc_top_extra,Enc_base+Enc_inner_height-Enc_upperlid_height])
-			cube([Enc_inner_length+2*Enc_upperlid_groove,Enc_innerduet_width+Enc_wall+Enc_upperlid_groove+0.1,Enc_upperlid_height+0.2]);
+			cube([Enc_inner_length+2*Enc_upperlid_groove,Enc_lid_width+0.1,Enc_upperlid_height+0.2]);
 		//Cut out the base if needed
 		if(Enc_hollowbase) {
 			translate([Enc_wall+Enc_bottomshelf_width,Enc_wall+Enc_bottomshelf_width,-0.1])
@@ -308,10 +311,10 @@ module lidLock(m) {
 }
 
 module lidLocks() {
-	translate([Enc_wall-Enc_upperlid_groove,Enc_wall,Enc_base+Enc_inner_height-Enc_upperlock_height]) lidLock(0);
-	translate([Enc_inner_length+Enc_wall+Enc_upperlid_groove,Enc_wall,Enc_base+Enc_inner_height-Enc_upperlock_height]) lidLock(1);
-	translate([Enc_wall-Enc_upperlid_groove,Enc_wall+Enc_innerduet_width-Enc_upperlock_width,Enc_base+Enc_inner_height-Enc_upperlock_height]) lidLock(0);
-	translate([Enc_inner_length+Enc_wall+Enc_upperlid_groove,Enc_wall+Enc_innerduet_width-Enc_upperlock_width,Enc_base+Enc_inner_height-Enc_upperlock_height]) lidLock(1);
+	translate([Enc_wall-Enc_upperlid_groove,Enc_wall-Enc_top_extra,Enc_base+Enc_inner_height-Enc_upperlock_height]) lidLock(0);
+	translate([Enc_inner_length+Enc_wall+Enc_upperlid_groove,Enc_wall-Enc_top_extra,Enc_base+Enc_inner_height-Enc_upperlock_height]) lidLock(1);
+	translate([Enc_wall-Enc_upperlid_groove,Enc_wall+Enc_innerduet_width-Enc_upperlock_width-Enc_top_extra,Enc_base+Enc_inner_height-Enc_upperlock_height]) lidLock(0);
+	translate([Enc_inner_length+Enc_wall+Enc_upperlid_groove,Enc_wall+Enc_innerduet_width-Enc_upperlock_width-Enc_top_extra,Enc_base+Enc_inner_height-Enc_upperlock_height]) lidLock(1);
 }
 
 module Duet() {
