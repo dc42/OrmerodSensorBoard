@@ -1,12 +1,14 @@
 // Insulator for sensor board with mounting for ultrasonic transducer
 
+DualNozzle = false;
+
 $fn=40;
 thickness = 2;
 holeY=14;
 hole1X=16.5;
 hole2X=hole1X+23;
 transducerY = 4.5;
-pillarHeight = 4.0;
+pillarHeight = (DualNozzle) ? 2.25 : 4.0;
 pillarRadius = 4.0;	// use 4.5 if using deep countersinks
 overlap=1;
 
