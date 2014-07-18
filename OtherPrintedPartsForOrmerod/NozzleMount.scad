@@ -1,7 +1,7 @@
 // Ormerod nozzle mount
 
-numNozzles = 2;				// how many nozzles (must be 1 or 2)
-nozzleSeparation2n = 14;	// spacing between nozzles, if more than one
+numNozzles = 3;				// how many nozzles (must be 1, 2 or 3)
+nozzleSeparation = 11;	// spacing between nozzles, if more than one
 width2n = 50;
 nozzleScrewHoleSeparation2n = 40;
 width1n = 38;
@@ -15,14 +15,14 @@ xCarriageScrewHoleOffset = 7;
 xCarriageScrewHoleSeparation = 15;
 m3clearance = 3.4;
 m3head = 6.5;
-bowdenClearance = 5.2;
+bowdenClearance = 5.4;
 
 overlap = 1;
 tinyOverlap = 0.01;
 lots = 50;
 
-width = (numNozzles == 2) ? width2n : width1n;
-nozzleScrewHoleSeparation = (numNozzles == 2) 
+width = (numNozzles >= 2) ? width2n : width1n;
+nozzleScrewHoleSeparation = (numNozzles >= 2) 
 									? nozzleScrewHoleSeparation2n : nozzleScrewHoleSeparation1n;
 
 module xCarriageScrewHole() {
@@ -59,9 +59,13 @@ difference () {
 		rotate([0,90,0]) cylinder(r=m3clearance/2,h=mainDepth + 2*overlap, $fn=24);
 	translate([-overlap,nozzleScrewHoleSeparation/2,nozzleScrewHoleOffset])
 		rotate([0,90,0]) cylinder(r=m3clearance/2,h=mainDepth + 2*overlap, $fn=24);
-	if (numNozzles == 2) {
-		translate([0,-nozzleSeparation2n/2,nozzleScrewHoleOffset]) bowdenSlot();
-		translate([0,nozzleSeparation2n/2,nozzleScrewHoleOffset]) bowdenSlot();
+	if (numNozzles == 3) {
+		translate([0,-nozzleSeparation,nozzleScrewHoleOffset]) bowdenSlot();
+		translate([0,0,nozzleScrewHoleOffset]) bowdenSlot();
+		translate([0,nozzleSeparation,nozzleScrewHoleOffset]) bowdenSlot();
+	} else if (numNozzles == 2) {
+		translate([0,-nozzleSeparation/2,nozzleScrewHoleOffset]) bowdenSlot();
+		translate([0,nozzleSeparation/2,nozzleScrewHoleOffset]) bowdenSlot();
 	} else {
 		translate([0,0,nozzleScrewHoleOffset]) bowdenSlot();
 	}
