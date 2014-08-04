@@ -1,8 +1,9 @@
 // Ormerod nozzle mount
 
-nozzleAngle=3;
+long = false;					// set true for extra length nozzle mount for printing ABS
+nozzleAngle = 2;				// how many degrees off the vertical, to compensate for head sag
 numNozzles = 3;				// how many nozzles (must be 1, 2 or 3)
-nozzleSeparation = 11;	// spacing between nozzles, if more than one
+nozzleSeparation = 11;		// spacing between nozzles, if more than one
 width2n = 50;
 nozzleScrewHoleSeparation2n = 40;
 width1n = 38;
@@ -10,11 +11,11 @@ overheight=3;
 nozzleScrewHoleSeparation1n = 15;
 nozzleScrewHoleOffset = 9+overheight;
 bowdenCutoutOffset = 8.5+overheight;
-fullDepth = 16;
-mainDepth = 9;
+mainDepth = (long) ? 20 : 9;
+fullDepth = mainDepth + 7;
 height = 13+overheight;
 smallHeight = 4.5+overheight;
-xCarriageScrewHoleOffset = 7;
+xCarriageScrewHoleOffset = mainDepth - 2;
 xCarriageScrewHoleSeparation = 15;
 m3clearance = 3.4;
 m3head = 6.5;
@@ -75,9 +76,9 @@ difference () {
 difference() {
 	rotate([0,-nozzleAngle,0]) translate([-fullDepth/2,0,-overheight/2]) overheightNozzleMount();
 	translate([-50,-50,-2*overheight]) cube([100,100,2*overheight]);
-	translate([xCarriageScrewHoleOffset-fullDepth/2,xCarriageScrewHoleSeparation/2,0])
+	translate([xCarriageScrewHoleOffset-fullDepth/2,xCarriageScrewHoleSeparation/2,-overheight/2])
 		xCarriageScrewHole();
-	translate([xCarriageScrewHoleOffset-fullDepth/2,-xCarriageScrewHoleSeparation/2,0])
+	translate([xCarriageScrewHoleOffset-fullDepth/2,-xCarriageScrewHoleSeparation/2,-overheight/2])
 		xCarriageScrewHole();
 }
 

@@ -21,7 +21,8 @@ Enc_5V_cutout=false;			//Enables cutout for 5V connection
 //PC mount parameters
 Enc_X4_standoff=16;				//How far the X4 board stands off from the base
 Enc_duet_standoff=(Enc_X4_stacked) ? Enc_X4_standoff+Enc_X4_separation : 2.5;
-Enc_standoff_radius=3.6;		// increased because if left at 3.5, slic3r tends to generate 2 circles instead of 3
+Enc_standoff_radius=4;
+Enc_standoff_radius_X4=3.55;	// increased because if left at 3.5, slic3r tends to generate 2 circles instead of 3
 
 //Main dimensions
 Enc_inner_height=(Enc_X4_stacked) ? Enc_basic_inner_height+Enc_duet_standoff : Enc_basic_inner_height;
@@ -29,7 +30,7 @@ Enc_inner_length=125.0;			//Inner length (y) of the enclosure
 Enc_innerduet_width=102.0;		//Duet nominal width
 Enc_lid_width=(Enc_extra_width==0) 
 	? Enc_innerduet_width+Enc_wall+Enc_upperlid_groove
-	: 107.7;	// if not generating lid feet cutouts, slot needs to be longer
+	: 107.7;						// if not generating lid feet cutouts, slot needs to be longer
 Enc_inner_width=Enc_innerduet_width+Enc_extra_width; // Derived real width
 Enc_bottomshelf_width=3.0;		//shelf width under PCB
 Enc_base=3.0;						//Thickness of base under PCB
@@ -50,7 +51,6 @@ Enc_holes_outerradius=4.5;
 // Mounting pillars for the X4 board need to be smaller in order to clear the connectors.
 // As the mounting holes in them are smaller than 4mm (like early Duet boards), we can use 3mm screws instead.
 Enc_holes_radius_tap_X4=1.5;
-Enc_holes_outerradius_X4=3.5;
 Enc_holes_countersinkdepth=1.3;
 Enc_holes_countersinkradius=4.0;
 Enc_holes_offsets=8.0;
@@ -63,26 +63,29 @@ Enc_Extra_holecount=5;
 Enc_Ethernet_y_offset=8.0;		//10.45
 Enc_Ethernet_z_offset=0;		//0.0
 Enc_Ethernet_width=17.9;		//17.05
-Enc_Ethernet_height=16.0;		//20.00
+Enc_Ethernet_height=15.5;		//20.00
 Enc_SD_y_offset=32.5;			//35.00
 Enc_SD_width=14.0;				//13.00
 Enc_SD_height=4.0;				//2.60
 Enc_SD_z_offset=1.00;			//1.75
-Enc_USB_y_offset=47.5;			//50.0
-Enc_USB_width=14.0;			//12.50
-Enc_USB_height=8.0;			//6.50
-Enc_USB_z_offset=0;			//0.0
+Enc_USB_y_offset=48.5;			//50.0
+Enc_USB_width=12.0;				//12.50
+Enc_USB_height=7.0;				//6.50
+Enc_USB_z_offset=0;				//0.0
 Enc_Power_y_offset=47.0;		//52.0
 Enc_Power_width=16.5;			//12.50
 Enc_Power_height=9.0;			//6.00
-Enc_Power_z_offset=1.5;		//3.00
+Enc_Power_z_offset=1.5;			//3.00
 Enc_5V_y_offset=66.0;			//New
 Enc_5V_width=12.0;				//New
 Enc_5V_height=7.0;				//New
 Enc_5V_z_offset=1.5;			//New
-Enc_X4Power_y_offset=29.5;
+Enc_X4Power_y_offset=26.5;
 Enc_X4Power_z_offset=-Enc_Power_height;
-overlap=1;
+Enc_X4Power_term_hole1_y_offset = Enc_X4Power_y_offset+(Enc_Power_width/2)-3.75;
+Enc_X4Power_term_hole2_y_offset = Enc_X4Power_y_offset+(Enc_Power_width/2)+3.75;
+Enc_X4Power_term_hole_x_offset = Enc_inner_length + Enc_wall - 7.0;
+overlap=0.1;
 
 $fn=25;
 include <MCAD/boxes.scad>;
@@ -93,10 +96,10 @@ include <MCAD/boxes.scad>;
 module baseBox() {
 	difference() {
 		//Start with solid roundex box
-		translate([(Enc_inner_length+2*Enc_wall)/2,(Enc_inner_width+2*Enc_wall+Enc_top_extra)/2-Enc_top_extra,(Enc_inner_height+Enc_base)/2])
+		translate([Enc_inner_length/2+Enc_wall,(Enc_inner_width+2*Enc_wall+Enc_top_extra)/2-Enc_top_extra,(Enc_inner_height+Enc_base)/2])
 			roundedBox([Enc_inner_length+2*Enc_wall,Enc_inner_width+2*Enc_wall+Enc_top_extra,Enc_inner_height+Enc_base], 1, false);
 		//Hollow out with another
-		translate([(Enc_inner_length)/2+Enc_wall,(Enc_inner_width)/2+Enc_wall-Enc_top_extra,(Enc_inner_height+Enc_base)/2+Enc_base])
+		translate([Enc_inner_length/2+Enc_wall,(Enc_inner_width+2*Enc_wall+Enc_top_extra)/2-Enc_top_extra,(Enc_inner_height+Enc_base)/2+Enc_base])
 			roundedBox([Enc_inner_length,Enc_inner_width+Enc_top_extra,Enc_inner_height+Enc_base], 1, false);
 		//Hollow out for top lip
 		translate([Enc_wall-Enc_upperlid_groove,-0.1-Enc_top_extra,Enc_base+Enc_inner_height-Enc_upperlid_height])
@@ -181,11 +184,11 @@ module mountingHoles() {
 	}
 	if (Enc_X4_stacked) {
 		//Mounting holes for X4. The lower holes are 2mm further apart than the upper holes and the holes on the Duet.
-		mountingHoleX4(Enc_holes_offsets,Enc_holes_offsets+14.5,Enc_base,false,true,Enc_X4_standoff);
-		mountingHoleX4(Enc_inner_length+2*Enc_wall-Enc_holes_offsets,Enc_holes_offsets+14.5,Enc_base,false,true,Enc_X4_standoff);
-		mountingHoleX4(Enc_holes_offsets-1,Enc_innerduet_width+2*Enc_wall-Enc_holes_offsets-16.5,
+		mountingHoleX4(Enc_holes_offsets,Enc_holes_offsets+12.5,Enc_base,false,true,Enc_X4_standoff);
+		mountingHoleX4(Enc_inner_length+2*Enc_wall-Enc_holes_offsets,Enc_holes_offsets+12.5,Enc_base,false,true,Enc_X4_standoff);
+		mountingHoleX4(Enc_holes_offsets-1,Enc_innerduet_width+2*Enc_wall-Enc_holes_offsets-18.5,
 						Enc_base,false,true,Enc_X4_standoff);	
-		mountingHoleX4(Enc_inner_length+2*Enc_wall-Enc_holes_offsets+1,Enc_innerduet_width+2*Enc_wall-Enc_holes_offsets-16.5,
+		mountingHoleX4(Enc_inner_length+2*Enc_wall-Enc_holes_offsets+1,Enc_innerduet_width+2*Enc_wall-Enc_holes_offsets-18.5,
 						Enc_base,false,true,Enc_X4_standoff);
 	}
 	//External hole
@@ -221,26 +224,45 @@ module mountingStand(x,y,ht,a,sth,e) {
 	}
 }
 
+module rectStand(xs,xe,y,w,ht) {
+	if (xs > xe) {
+		translate([xe,y-w/2,Enc_base-1]) cube([xs-xe,w,ht+1]);
+	} else {
+		translate([xs,y-w/2,Enc_base-1]) cube([xe-xs,w,ht+1]);
+	}
+	translate([xe,y,Enc_base-1]) cylinder(r=w/2,h=ht+1);
+}
+
 module mountingStands() {
-	//Add stands for Duet board
-	mountingStand(Enc_holes_offsets,Enc_holes_offsets,Enc_base,-45,
-						Enc_duet_standoff,0);
-	mountingStand(Enc_holes_offsets,Enc_innerduet_width+2*Enc_wall-Enc_holes_offsets,Enc_base,-135,
-						Enc_duet_standoff,0);
-	mountingStand(Enc_inner_length+2*Enc_wall-Enc_holes_offsets,Enc_holes_offsets,Enc_base,45,
-						Enc_duet_standoff,0);
-	mountingStand(Enc_inner_length+2*Enc_wall-Enc_holes_offsets,Enc_innerduet_width+2*Enc_wall-Enc_holes_offsets,Enc_base,135,
-						Enc_duet_standoff,0);
 	if (Enc_X4_stacked) {
+		//Add stands for Duet board
+		rectStand(overlap,Enc_holes_offsets,Enc_holes_offsets,
+					2*Enc_standoff_radius,Enc_duet_standoff);
+		rectStand(overlap,Enc_holes_offsets,Enc_innerduet_width+2*Enc_wall-Enc_holes_offsets,
+					2*Enc_standoff_radius,Enc_duet_standoff);
+		rectStand(Enc_inner_length+2*Enc_wall-overlap,Enc_inner_length+2*Enc_wall-Enc_holes_offsets,Enc_holes_offsets,
+					2*Enc_standoff_radius,Enc_duet_standoff);
+		rectStand(Enc_inner_length+2*Enc_wall-overlap,Enc_inner_length+2*Enc_wall-Enc_holes_offsets,Enc_innerduet_width+2*Enc_wall-Enc_holes_offsets,
+					2*Enc_standoff_radius,Enc_duet_standoff);
 		//Add stands for X4 board
-		mountingStand(Enc_holes_offsets,Enc_holes_offsets+14.5,Enc_base,-45,
-							Enc_X4_standoff,0);
-		mountingStand(Enc_holes_offsets-1,Enc_innerduet_width+2*Enc_wall-Enc_holes_offsets-16.5,Enc_base,-135,
-							Enc_X4_standoff,0);
-		mountingStand(Enc_inner_length+2*Enc_wall-Enc_holes_offsets,Enc_holes_offsets+14.5,Enc_base,45,
-							Enc_X4_standoff,0);
-		mountingStand(Enc_inner_length+2*Enc_wall-Enc_holes_offsets+1,Enc_innerduet_width+2*Enc_wall-Enc_holes_offsets-16.5,Enc_base,135,
-							Enc_X4_standoff,0);
+		rectStand(overlap,Enc_holes_offsets,Enc_holes_offsets+12.5,
+					2*Enc_standoff_radius_X4,Enc_X4_standoff);
+		rectStand(overlap,Enc_holes_offsets-1,Enc_innerduet_width+2*Enc_wall-Enc_holes_offsets-18.5,
+					2*Enc_standoff_radius_X4,Enc_X4_standoff);
+		rectStand(Enc_inner_length+2*Enc_wall-overlap,Enc_inner_length+2*Enc_wall-Enc_holes_offsets,Enc_holes_offsets+12.5,
+					2*Enc_standoff_radius_X4,Enc_X4_standoff);
+		rectStand(Enc_inner_length+2*Enc_wall-overlap,Enc_inner_length+2*Enc_wall-Enc_holes_offsets+1,Enc_innerduet_width+2*Enc_wall-Enc_holes_offsets-18.5,
+					2*Enc_standoff_radius_X4,Enc_X4_standoff);
+	} else {
+		//Add stands for Duet board
+		mountingStand(Enc_holes_offsets,Enc_holes_offsets,Enc_base,-45,
+							Enc_duet_standoff,0);
+		mountingStand(Enc_holes_offsets,Enc_innerduet_width+2*Enc_wall-Enc_holes_offsets,Enc_base,-135,
+							Enc_duet_standoff,0);
+		mountingStand(Enc_inner_length+2*Enc_wall-Enc_holes_offsets,Enc_holes_offsets,Enc_base,45,
+							Enc_duet_standoff,0);
+		mountingStand(Enc_inner_length+2*Enc_wall-Enc_holes_offsets,Enc_innerduet_width+2*Enc_wall-Enc_holes_offsets,Enc_base,135,
+							Enc_duet_standoff,0);
 	}
 	//External mount
 	mountingStand(Enc_holes_ext_xoffset+2*Enc_wall+Enc_inner_length,Enc_inner_width+2*Enc_wall-Enc_holes_offsets-Enc_holes_ext_yoffset,Enc_base+Enc_holes_ext_height,-90,0,1);
@@ -274,10 +296,12 @@ module connectorCutouts() {
 	}
 	if(Enc_X4_stacked) {
 		//X4 power
-		translate([0,Enc_wall,Enc_base+Enc_X4_standoff]) {
-			translate([Enc_inner_length+Enc_wall-0.1,Enc_X4Power_y_offset,Enc_X4Power_z_offset])
-				cube([Enc_wall+0.2,Enc_Power_width,Enc_Power_height]);
-		}
+		translate([Enc_inner_length+Enc_wall-overlap,Enc_X4Power_y_offset+Enc_wall,Enc_X4Power_z_offset+Enc_base+Enc_X4_standoff])
+			cube([Enc_wall+2*overlap,Enc_Power_width,Enc_Power_height]);
+		translate([Enc_X4Power_term_hole_x_offset,Enc_X4Power_term_hole1_y_offset+Enc_wall,-overlap])
+			cylinder(r=2.5,h=Enc_base+2*overlap);
+		translate([Enc_X4Power_term_hole_x_offset,Enc_X4Power_term_hole2_y_offset+Enc_wall,-overlap])
+			cylinder(r=2.5,h=Enc_base+2*overlap);
 	}
 }
 
