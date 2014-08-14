@@ -9,7 +9,30 @@ overlap = 1;
 
 blade_angle = 35;
 
-use <fan_deflector_v4_aerofoil.scad>
+module aerofoil()
+{
+	radius = 1.3;
+  	thickness = .15;
+  	angle = asin(0.5/radius);
+
+  	translate([sin(angle) * radius,-cos(angle)*radius,0]){
+		union(){
+			intersection(){
+				difference(){
+					circle(r = radius + thickness / 2, $fn = 100);
+					circle(r = radius - thickness / 2, $fn = 100);
+				}
+				scale([2*radius,2*radius,2*radius])
+					polygon([[0,0],[-sin(angle),cos(angle)],[sin(angle),cos(angle)]]);
+
+			}
+			translate([-sin(angle) * radius,cos(angle)*radius,0])
+				circle(r=thickness / 2,$fn=20);
+			translate([sin(angle) * radius,cos(angle)*radius,0])
+				circle(r=thickness / 2,$fn=20);
+      }
+   }
+}
 
 module foil()
 {
@@ -57,7 +80,8 @@ module fan_backwash_plate() {
    difference() {
       translate([-wall,-wall,0])
 			cube([cube_length + 2*wall, cube_width + 2*wall, cube_height + skirt]);
-      translate([cube_length/2,cube_width/2,-10]) cylinder(20,19,19, $fn=50);
+      translate([cube_length/2,cube_width/2,-10])
+			cylinder(20,19,19, $fn=50);
 
       translate([-.30,-.30,cube_height])
          cube([cube_length + .6,cube_width + .6, cube_height + skirt + overlap]);
@@ -65,11 +89,12 @@ module fan_backwash_plate() {
       //holes at bottom
       translate([4, 4, 0]) screw_hole();
       translate([4, cube_width-4, 0]) screw_hole();
+      translate([cube_length-4, 4, 0]) screw_hole();
+      translate([cube_length-4, cube_width-4, 0]) screw_hole();
    } // difference
 } // module
 
 union() {
-
    fan_backwash_plate();
 	blades(); 
 }
