@@ -7,6 +7,7 @@ $fs=0.8; // def 1, 0.2 is high res
 $fa=4;//def 12, 3 is very nice
 %translate([0,0,-0.5])cube([200,200,1],center=true); //build platform
 
+irSensorOffset = 0.5;
 sc = 32; //Screw Centres
 wall=2;
 hole = 37.5;  //fan hole
@@ -112,8 +113,8 @@ translate([x,y-0.01,0]) rotate([0,0,90]) {
 difference() {
 	union() {
 		cube([x,y+1.9,z]); //outer block
-	translate([-3,((x-sc)/2) + sc - 0.5,9]) rotate([0,90,0]) cylinder(4,3,6);	// sensor board mount
-	translate([-3,((x-sc)/2) + sc - 23.5,9]) rotate([0,90,0]) cylinder(4,3,6);	// sensor board mount	
+	translate([-3,((x-sc)/2) + sc + irSensorOffset ,9]) rotate([0,90,0]) cylinder(4,3,6);	// sensor board mount
+	translate([-3,((x-sc)/2) + sc + irSensorOffset - 23,9]) rotate([0,90,0]) cylinder(4,3,6);	// sensor board mount	
 
 	}
 	translate([x/2,x/2,-.1]) cylinder(20,hole/2,hole/2); //fan hole
@@ -124,8 +125,8 @@ difference() {
 		translate([((x-sc)/2) + (xp*sc),((x-sc)/2) + sc,-.1]) cylinder(3,1.6,1.6);
 	}
 	
-	translate([-4,((x-sc)/2) + sc - 0.5,9]) rotate([0,90,0]) cylinder(h=5,r=1.2);	// sensor board hole
-	translate([-4,((x-sc)/2) + sc - 23.5,9]) rotate([0,90,0]) cylinder(h=5,r=1.2);	// sensor board hole
+	translate([-4,((x-sc)/2) + sc + irSensorOffset,9]) rotate([0,90,0]) cylinder(h=5,r=1.2);	// sensor board hole
+	translate([-4,((x-sc)/2) + sc + irSensorOffset - 23,9]) rotate([0,90,0]) cylinder(h=5,r=1.2);	// sensor board hole
 	
 	translate([0,-6,-1]) rotate([0,0,45]) cube([5,5,z+2]); // top bevel
 	translate([x,-6,-1]) rotate([0,0,45]) cube([5,5,z+2]); //top bevel

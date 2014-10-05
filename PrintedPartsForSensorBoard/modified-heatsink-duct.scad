@@ -1,19 +1,22 @@
 // Modified Ormerod hot end heatsink duct with fixings for DC's hot end board
 
-dualNozzle = false;			// set true for dual nozzle head, false for single nozzle
-secondHotEndBoard = false;	// set true to add mountinh poits for a second hot end board at the other side
+dualNozzle = true;			// set true for dual nozzle head, false for single nozzle
 
 // Main configuration constants
 fixingStripWidth = 9;
 fixingStripThickness1 = (dualNozzle) ? 5.5 : 3;
 fixingHoleDepth1 = fixingStripThickness1 + 2;
-fixingHoleYoffset = 13.5;
-fixingHoleZoffset = 9;
+fixingHoleYoffset = 14.2;
+fixingHoleZoffset = 9.5;
 
-// Configuration constants for second board mounting
-secondBoardOffset = 58;
-fixingStripThickness2 = 5;
-fixingHoleDepth2 = 5;
+// Cable tie
+cableTieThickness = 2.4;
+cableTieWidth = 7;
+cableTieHoleDiameter = 4;
+cableTieXoffset = 44;
+cableTieHoleYoffset1 = 5;
+cableTieHoleYoffset2 = 12;
+
 
 // Misc
 overlap = 1;
@@ -35,23 +38,21 @@ difference() {
 			fixingPoint(fixingStripThickness1+overlap);
 		translate([-fixingStripThickness1, fixingHoleYoffset + 23, 0])
 			fixingPoint(fixingStripThickness1+overlap);
-		if (secondHotEndBoard) {
-			translate([secondBoardOffset - 1.5, fixingHoleYoffset, 0])
-				fixingPoint(fixingStripThickness2 + 1.5); 
-			translate([secondBoardOffset - 1.5, fixingHoleYoffset + 23, 0])
-				fixingPoint(fixingStripThickness2 + 1.5); 
-		}
+		// cable tie point
+		translate([cableTieXoffset - (cableTieWidth/2), -cableTieHoleYoffset2, 0])
+			cube([cableTieWidth,cableTieHoleYoffset2 + overlap, cableTieThickness]);
+		translate([cableTieXoffset, -cableTieHoleYoffset2, 0])
+			cylinder(r=cableTieWidth/2, h=cableTieThickness, $fn=32);
 	}
 	translate([-fixingStripThickness1 - overlap, fixingHoleYoffset, fixingHoleZoffset])
 		fixingHole(fixingHoleDepth1 + overlap);
 	translate([-fixingStripThickness1 - overlap, fixingHoleYoffset + 23, fixingHoleZoffset])
 		fixingHole(fixingHoleDepth1 + overlap);
-	if (secondHotEndBoard) {
-		translate([secondBoardOffset, fixingHoleYoffset, fixingHoleZoffset])
-			fixingHole(fixingHoleDepth2 + overlap); 
-		translate([secondBoardOffset, fixingHoleYoffset + 23, fixingHoleZoffset])
-			fixingHole(fixingHoleDepth2 + overlap); 
-	}
+	// cable tie hole
+	translate([cableTieXoffset, -cableTieHoleYoffset1, -overlap])
+		cylinder(r=cableTieHoleDiameter/2, h=cableTieThickness + 2*overlap, $fn=16);
+	translate([cableTieXoffset, -cableTieHoleYoffset2, -overlap])
+		cylinder(r=cableTieHoleDiameter/2, h=cableTieThickness + 2*overlap, $fn=16);
 }
 
 
