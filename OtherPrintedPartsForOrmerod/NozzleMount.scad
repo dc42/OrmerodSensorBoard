@@ -2,7 +2,7 @@
 
 long = false;					// set true for extra length nozzle mount for printing ABS
 nozzleAngle = 2;				// how many degrees off the vertical, to compensate for head sag
-numNozzles = 3;				// how many nozzles (must be 1, 2 or 3)
+numNozzles = 1;				// how many nozzles (must be 1, 2 or 3)
 nozzleSeparation = 11;		// spacing between nozzles, if more than one
 width2n = 50;
 nozzleScrewHoleSeparation2n = 40;

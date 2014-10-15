@@ -1,6 +1,7 @@
 // Holder for Ormerod prototype differential IR sensor board
+// Choose layer height to be a submultiple of the thickness
 
-thickness=1.2;
+thickness=1.1;	// board is 1.2mm but this part comes out slightly too thick
 xborder=50;
 yborder=50;
 yrepeat=50.15;	// 1st stencil measured 50.15, frame printed @50mm measured 49.80
@@ -29,10 +30,10 @@ module boardCutout()
 		cube([nibHeight,nibWidth+overlap,thickness+2*overlap]);
 	translate([cornerOffset,cornerOffset,-overlap])
 		cylinder(r=cornerRadius,h=thickness+2*overlap,$fn=12);
-	translate([height+clearance-cornerOffset,nibWidth+cornerOffset,-overlap])
-		cylinder(r=cornerRadius,h=thickness+2*overlap,$fn=12);
 	translate([height+clearance-cornerOffset,width+nibWidth+clearance-cornerOffset,-overlap])
-		cylinder(r=cornerRadius,h=thickness+2*overlap,$fn=12);
+		cylinder(r=6,h=thickness+2*overlap,$fn=12);
+	// Cutouts for components near the edges
+	translate([37,27,-overlap]) cube([30,10,thickness+2*overlap]);
 }
 
 
