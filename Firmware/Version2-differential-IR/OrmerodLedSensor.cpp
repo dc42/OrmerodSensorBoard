@@ -26,40 +26,58 @@
 #pragma ECV verifyincludefiles
 #endif
 
-#define ISR_DEBUG	(0)		// set nonzero to use PA4 as debug output pin
+#define DUAL_NOZZLE (1)		// set nonzero for dual nozzle support
+#define ISR_DEBUG	(0)		// set nonzero to use PB2 as debug output pin
 
-#define BITVAL(_x) (1u << (_x))
+#if DUAL_NOZZLE && ISR_DEBUG
+#error "DUAL_NOZZLE and ISR_DEBUG may not both be set"
+#endif
+
+#define BITVAL(_x) static_cast<uint8_t>(1u << (_x))
 
 // Pin assignments:
 // PA0/ADC0		digital input from Duet
 // PA1/ADC1		analog input from phototransistor
-// PA2/ADC2		output to Duet via 13K resistor
-// PA3/ADC3		analog input from thermistor
-// PA4/SCLK		can be tied to ground to indicate that a 4k7 thermistor series resistor is used instead of 1k. Also SCLK when programming.
+// PA2/ADC2		output to Duet via 12K resistor (single nozzle) OR analog input from thermistor2 (dual nozzle)
+// PA3/ADC3		analog input from thermistor (single nozzle) or 1K/4K7 sense pin (dual nozzle)
+// PA4/SCLK		1K/4K7 sense pin (single nozzle) or analog input from thermistor 1 (dual nozzle). Also SCLK when programming.
 // PA5/OC1B		digital output to control fan, active high. Also MISO when programming.
 // PA6/OC1A		near LED drive, active low in prototype, will be active high in release. Also MOSI when programming.
 // PA7/OC0B		output to Duet via 10K resistor
 
 // PB0			far LED drive, active high
 // PB1			far LED drive, active high (paralleled with PB0)
-// PB2/OC0A		unused
+// PB2/OC0A		unused (single nozzle) OR ISR-DEBUG pin OR output to Duet voa 12K resistor (dual nozzle)
 // PB3/RESET	not available, used for programming
 
-__fuse_t __fuse __attribute__((section (".fuse"))) = {0xE2, 0xDF, 0xFF};
+__fuse_t __fuse __attribute__((section (".fuse"))) = {0xE2u, 0xDFu, 0xFFu};
 
 const unsigned int PortADuetInputBit = 0;
 const unsigned int AdcPhototransistorChan = 1;
-const unsigned int PortADuet13KOutputBit = 2;
-const unsigned int AdcThermistorChan = 3;
+#if DUAL_NOZZLE
+const unsigned int AdcThermistor2Chan = 2;
+const unsigned int PortASeriesResistorSenseBit = 3;
+const unsigned int AdcThermistor1Chan = 4;
+#else
+const unsigned int PortADuet12KOutputBit = 2;
+const unsigned int AdcThermistor1Chan = 3;
 const unsigned int PortASeriesResistorSenseBit = 4;
+#endif
 const unsigned int PortAFanControlBit = 5;
 const unsigned int PortANearLedBit = 6;
+#if DUAL_NOZZLE
+const unsigned int PortADuet12KOutputBit = 7;
+#else
 const unsigned int PortADuet10KOutputBit = 7;
+#endif
 
 const uint8_t PortAUnusedBitMask = 0;
 
 const uint8_t PortBFarLedMask = BITVAL(0) | BITVAL(1);
-#if ISR_DEBUG
+#if DUAL_NOZZLE
+const unsigned int PortBDuet10KOutputBit = 2;
+const uint8_t PortBUnusedBitMask = 0;
+#elif ISR_DEBUG
 const unsigned int PortBDebugPin = 2;
 const uint8_t PortBUnusedBitMask = 0;
 #else
@@ -82,26 +100,45 @@ const uint16_t saturatedThreshold = 870 * cyclesAveragedIR;	// minimum reading f
 
 // IR variables
 typedef uint8_t invariant(value < cyclesAveragedIR) irIndex_t;
-	
-volatile uint16_t nearSumIR, farSumIR, offSumIR;
-uint16_t nearLedReadings[cyclesAveragedIR], farLedReadings[cyclesAveragedIR], offReadings[cyclesAveragedIR];
-irIndex_t nearLedIndex, farLedIndex, offIndex;
 
-ghost(
-	bool irInvariant()
-		returns(   (forall r in nearLedReadings :- r <= 1023)
-				&& (forall r in farLedReadings :- r <= 1023)
-				&& (forall r in offReadings :- r <= 1023)
-				&& nearSumIR == + over nearLedReadings
-				&& farSumIR == + over farLedReadings
-				&& offSumIR == + over offReadings
-			   );
-)
-			   
+struct IrData
+{
+	uint16_t readings[cyclesAveragedIR];
+	volatile uint16_t sum;
+	irIndex_t index;
+
+	void addReading(uint16_t arg)
+	writes(*this; volatile)
+	pre(invar())
+	pre(arg <= 1023)
+	post(invar())
+	{
+		sum = sum - readings[index] + arg;
+		readings[index] = arg;
+		index = static_cast<irIndex_t>((index + 1) % cyclesAveragedIR);
+	}
+	
+	void init()
+	writes(*this; volatile)
+	post(invar());
+
+	ghost(
+		bool invar() const
+			returns((forall r in readings :- r <= 1023) && sum == + over readings);
+	)
+	
+#ifdef __ECV__
+	// Dummy constructor to keep eCv happy
+	IrData() : index(0) {}
+#endif
+};
+
+IrData nearData, farData, offData;
+	
 // Fan parameters
-const uint16_t fanSampleFreq = 16;
-const uint16_t fanSampleIntervalTicks = interruptFreq/fanSampleFreq;
-const uint16_t fanSamplesAveraged = 16;
+const uint16_t thermistorSampleFreq = 16;
+const uint16_t thermistorSampleIntervalTicks = interruptFreq/thermistorSampleFreq;
+const uint16_t thermistorSamplesAveraged = 16;
 
 // Fan thresholds
 
@@ -117,25 +154,44 @@ const uint16_t thermistorOnThreshold4K7 = 92;			// we turn the fan on if we get 
 
 const uint16_t fanOnSeconds = 2;						// once the fan is on, we keep it on for at least this time
 
-// Fan variables
-typedef uint8_t invariant(value < fanSamplesAveraged) fanIndex_t;
+// Thermistor and fan variables
+typedef uint8_t invariant(value < thermistorSamplesAveraged) thermistorIndex_t;
 
-uint16_t fanReadings[fanSamplesAveraged], fanOffsets[fanSamplesAveraged];
-volatile uint16_t fanReadingSum, fanOffsetSum;
+struct ThermistorData
+{	
+	uint16_t readings[thermistorSamplesAveraged], offsets[thermistorSamplesAveraged];
+	volatile uint16_t readingSum, offsetSum;
+	thermistorIndex_t index;
+
+	void init(uint16_t readingInit, uint16_t offsetInit)
+	writes(*this; volatile)
+	pre(readingInit <= 1023; offsetInit <= 1023)
+	post(this->invar());
+
+	ghost(
+		bool invar() const
+		returns(   (forall r in readings :- r <= 1023)
+				&& (forall r in offsets :- r <= 1023)
+				&& readingSum == + over readings
+				&& offsetSum == + over offsets
+			   );
+	)
+
+#ifdef __ECV__
+	// Dummy constructor to keep eCv happy
+	IrData() : index(0) {}
+#endif
+};
+
+ThermistorData thermistor1Data;
+#if DUAL_NOZZLE
+ThermistorData thermistor2Data;
+#endif
+
 uint16_t thermistorConnectedThreshold, thermistorOnThreshold, thermistorOffThreshold;
-fanIndex_t fanIndex;
-bool fan1Kmode;
+bool thermistor1Kmode;
 uint16_t lastFanSampleTicks;
 uint8_t fanChangeCount;
-
-ghost(
-	bool fanInvariant()
-		returns(   (forall r in fanReadings :- r <= 1023)
-				&& (forall r in fanOffsets :- r <= 1023)
-				&& fanReadingSum == + over fanReadings
-				&& fanOffsetSum == + over fanOffsets
-			   );
-)
 
 // General variables
 volatile uint16_t tickCounter;						// counts system ticks, lower 2 bits also used for ADC/LED state
@@ -148,11 +204,22 @@ bool running;
 // The reason for this is that when we switch the ADC into differential mode to get reliable readings with a 1K series resistor,
 // the ADC subsystem needs extra time to settle down.
 ISR(TIM1_COMPB_vect)
-writes(nearLedReadings; nearLedIndex; farLedReadings; farLedIndex; offReadings; offIndex; fanReadings; fanOffsets; fanIndex; volatile)
-pre(irInvariant())
-pre(fanInvariant())
-post(irInvariant())
-post(fanInvariant())
+writes(nearData; farData; offData)
+writes(thermistor1Data)
+#if DUAL_NOZZLE
+writes(thermistor2Data)
+#endif
+writes(volatile)
+pre(nearData.invar(); farData.invar(); offData.invar())
+pre(thermistor1Data.invar())
+#if DUAL_NOZZLE
+pre(thermistor2Data.invar())
+#endif
+post(nearData.invar(); farData.invar(); offData.invar())
+post(thermistor1Data.invar())
+#if DUAL_NOZZLE
+post(thermistor2Data.invar())
+#endif
 {
 #if ISR_DEBUG
 	PORTB |= BITVAL(PortBDebugPin);					// set debug pin high
@@ -163,122 +230,150 @@ post(fanInvariant())
 	while (TCNT1 < 3 * 64) {}						// delay a little until the ADC s/h has taken effect. 3 ADC clocks should be enough.
 	switch(locTickCounter & 0x0fu)
 	{
-		case 0:										
-			// LEDs are off, we just did a fan reading, we are doing an off reading now and a far reading next
-			if (running)
-			{
-				if (fan1Kmode)
-				{
-					adcVal ^= 0x0200u;				// convert signed reading to unsigned biased by 512
-					if ((locTickCounter & 0x10u) == 0)
-					{
-						fanReadingSum = fanReadingSum - fanReadings[fanIndex] + adcVal;
-						fanReadings[fanIndex] = adcVal;
-						fanIndex = (fanIndex + 1) & (fanSamplesAveraged - 1);
-					}
-					else
-					{
-						fanOffsetSum = fanOffsetSum - fanOffsets[fanIndex] + adcVal;
-						fanOffsets[fanIndex] = adcVal;
-					}
-				}
-				else
-				{
-					fanReadingSum = fanReadingSum - fanReadings[fanIndex] + adcVal;
-					fanReadings[fanIndex] = adcVal;
-					fanIndex = (fanIndex + 1) & (fanSamplesAveraged - 1);
-				}
-			}
-			PORTB |= PortBFarLedMask;				// turn far LED on
-			break;
-			
+		case 0:
 		case 3:
 		case 6:
 		case 9:
-			// LEDs are off, we just did a near reading, we are doing an off reading now and a far reading next
-			if (running)
-			{
-				nearSumIR = nearSumIR - nearLedReadings[nearLedIndex] + adcVal;
-				nearLedReadings[nearLedIndex] = adcVal;
-				nearLedIndex = (nearLedIndex + 1) & (cyclesAveragedIR - 1);
-			}
-			PORTB |= PortBFarLedMask;				// turn far LED on
-			break;
-
-		case 1:
-		case 4:
-		case 7:
-		case 10:
 			// Far LED is on, we just did an off reading, we are doing a far reading now and a near reading next
 			if (running)
 			{
-				offSumIR = offSumIR - offReadings[offIndex] + adcVal;
-				offReadings[offIndex] = adcVal;
-				offIndex = (offIndex + 1) & (cyclesAveragedIR - 1);
+				offData.addReading(adcVal);
 			}
 			PORTB &= ~PortBFarLedMask;				// turn far LED on
 			PORTA |= BITVAL(PortANearLedBit);		// turn near LED on
 			break;
 		
-		case 2:
-		case 5:
-		case 8:
+		case 1:
+		case 4:
+		case 7:
 			// Near LED is on, we just did a far reading, we are doing a near reading now and an off reading next			
 			if (running)
 			{
-				farSumIR = farSumIR - farLedReadings[farLedIndex] + adcVal;
-				farLedReadings[farLedIndex] = adcVal;
-				farLedIndex = (farLedIndex + 1) & (cyclesAveragedIR - 1);
+				farData.addReading(adcVal);
 			}
 			PORTA &= ~BITVAL(PortANearLedBit);		// turn near LED off
 			break;
 					
-		case 11:
+		case 2:
+		case 5:
+		case 8:
+			// LEDs are off, we just did a near reading, we are doing an off reading now and a far reading next
+			if (running)
+			{
+				nearData.addReading(adcVal);
+			}
+			PORTB |= PortBFarLedMask;				// turn far LED on
+			break;
+
+		case 10:
 			// Near LED is on, we just did a far reading, we are doing a near reading now and a fan reading next
 			if (running)
 			{
-				farSumIR = farSumIR - farLedReadings[farLedIndex] + adcVal;
-				farLedReadings[farLedIndex] = adcVal;
-				farLedIndex = (farLedIndex + 1) & (cyclesAveragedIR - 1);
+				farData.addReading(adcVal);
 			}
 			PORTA &= ~BITVAL(PortANearLedBit);		// turn near LED off
-			if (fan1Kmode)
+
+#if DUAL_NOZZLE
+			if ((locTickCounter & 0x20u) == 0)
 			{
-				ADMUX = ((locTickCounter & 0x10u) != 0)
-						? 0b00010011		// +ve input = ADC3, -ve input = ADC4, gain x20
-						: 0b00110011;		// +ve input = ADC4, -ve input = ADC3, gain x20
+				// Select thermistor 1
+				if (thermistor1Kmode)
+				{
+					ADMUX = ((locTickCounter & 0x10u) != 0)
+						? 0b00110011u				// +ve input = ADC4, -ve input = ADC3, gain x20
+						: 0b00010011u;				// +ve input = ADC3, -ve input = ADC4, gain x20
+				}
+				else
+				{
+					ADMUX = (uint8_t)AdcThermistor1Chan;	// select thermistor 1 (ADC4) as a single-ended input
+				}
 			}
 			else
 			{
-				ADMUX = BITVAL(MUX1) | BITVAL(MUX0);	// select fan as a single-ended input
-			}						
+				// Select thermistor 2
+				if (thermistor1Kmode)
+				{
+					ADMUX = ((locTickCounter & 0x10u) != 0)
+						? 0b00010001u				// +ve input = ADC2, -ve input = ADC3, gain x20
+						: 0b00110001u;				// +ve input = ADC3, -ve input = ADC2, gain x20
+				}
+				else
+				{
+					ADMUX = (uint8_t)AdcThermistor2Chan;	// select thermistor 2 (ADC2) as a single-ended input
+				}
+			}
+#else
+			if (thermistor1Kmode)
+			{
+				ADMUX = ((locTickCounter & 0x10u) != 0)
+						? 0b00010011u				// +ve input = ADC3, -ve input = ADC4, gain x20
+						: 0b00110011u;				// +ve input = ADC4, -ve input = ADC3, gain x20
+			}
+			else
+			{
+				ADMUX = AdcThermistor1Chan;			// select thermistor 1 (ADC3) as a single-ended input
+			}
+#endif			
 			break;
 		
-		case 12:
+		case 11:
 			// LEDs are off, we just did a near reading, we are doing a fan reading which we will discard, we will do another fan reading next
 			if (running)
 			{
-				nearSumIR = nearSumIR - nearLedReadings[nearLedIndex] + adcVal;
-				nearLedReadings[nearLedIndex] = adcVal;
-				nearLedIndex = (nearLedIndex + 1) & (cyclesAveragedIR - 1);
+				nearData.addReading(adcVal);
 			}
 			break;
 			
+		case 12:
 		case 13:
-		case 14:
 			// LEDs are off and we are doing dummy fan readings
 			break;
 
-		case 15:
+		case 14:
 			// LEDs are off, we just did a dummy fan reading, we are doing another fan reading now and an off reading next
-			ADMUX = BITVAL(MUX0);					// select input 1 = phototransistor
+			ADMUX = (uint8_t)AdcPhototransistorChan;	// select input 1 = phototransistor
 			break;
+
+		case 15:
+		// LEDs are off, we just did a fan reading, we are doing an off reading now and a far reading next
+		if (running)
+		{
+			ThermistorData* currentThermistor =
+#if DUAL_NOZZLE
+				((locTickCounter & 0x20u) == 0) ? &thermistor1Data : &thermistor2Data;
+#else
+				&thermistor1Data;
+#endif
+			if (thermistor1Kmode)
+			{
+				adcVal ^= 0x0200u;				// convert signed reading to unsigned biased by 512
+				if ((locTickCounter & 0x10u) != 0)
+				{
+					currentThermistor->readingSum = currentThermistor->readingSum - currentThermistor->readings[currentThermistor->index] + adcVal;
+					currentThermistor->readings[currentThermistor->index] = adcVal;
+					currentThermistor->index = (currentThermistor->index + 1) & (thermistorSamplesAveraged - 1);
+				}
+				else
+				{
+					currentThermistor->offsetSum = currentThermistor->offsetSum - currentThermistor->offsets[currentThermistor->index] + adcVal;
+					currentThermistor->offsets[currentThermistor->index] = adcVal;
+				}
+			}
+			else
+			{
+				currentThermistor->readingSum = currentThermistor->readingSum - currentThermistor->readings[currentThermistor->index] + adcVal;
+				currentThermistor->readings[currentThermistor->index] = adcVal;
+				currentThermistor->index = (currentThermistor->index + 1) & (thermistorSamplesAveraged - 1);
+			}
+		}
+		PORTB |= PortBFarLedMask;				// turn far LED on
+		break;
 	}
 	
 	++tickCounter;
 
 #if ISR_DEBUG
-	PORTB &= (uint8_t)(~BITVAL(PortBDebugPin) & 0xFFu);			// set debug pin high
+	PORTB &= (uint8_t)(~BITVAL(PortBDebugPin) & 0xFFu);	// set debug pin high
 #endif
 }
 
@@ -308,10 +403,21 @@ writes(fanChangeCount; volatile)
 	if ((PORTA & BITVAL(PortAFanControlBit)) != 0)
 	{
 		// Fan is on. Turn it off if thermistor is connected and temp <= off-threshold
-		if (fanReadingSum < fanOffsetSum)
+		if (   (thermistor1Data.readingSum < thermistor1Data.offsetSum)
+#if DUAL_NOZZLE
+			&& (thermistor2Data.readingSum < thermistor2Data.offsetSum)
+#endif
+		   )
 		{
-			uint16_t fanDiff = fanOffsetSum - fanReadingSum;
-			if (fanDiff >= thermistorConnectedThreshold && fanDiff <= thermistorOffThreshold)
+			uint16_t fanDiff1 = thermistor1Data.offsetSum - thermistor1Data.readingSum;
+#if DUAL_NOZZLE
+			uint16_t fanDiff2 = thermistor2Data.offsetSum - thermistor2Data.readingSum;
+#endif
+			if (   (fanDiff1 >= thermistorConnectedThreshold) && (fanDiff1 <= thermistorOffThreshold)
+#if DUAL_NOZZLE
+				&& (fanDiff2 >= thermistorConnectedThreshold) && (fanDiff2 <= thermistorOffThreshold)
+#endif
+			   )
 			{
 				if (fanChangeCount == 0)
 				{
@@ -326,14 +432,30 @@ writes(fanChangeCount; volatile)
 	}
 	else
 	{
-		uint16_t fanDiff;
+		uint16_t fanDiff1;
+#if DUAL_NOZZLE
+		uint16_t fanDiff2;
+#endif
 		// Fan is off. Turn it on if thermistor is disconnected or temp >= on-threshold
-		if (fanReadingSum >= fanOffsetSum
-			|| (fanDiff = fanOffsetSum - fanReadingSum) < thermistorConnectedThreshold
-			|| fanDiff >= thermistorOnThreshold)
+		if (   (thermistor1Data.readingSum >= thermistor1Data.offsetSum)
+			|| ((fanDiff1 = thermistor1Data.offsetSum - thermistor1Data.readingSum) < thermistorConnectedThreshold)
+			|| (fanDiff1 >= thermistorOnThreshold)
+#if DUAL_NOZZLE
+			|| (thermistor2Data.readingSum >= thermistor2Data.offsetSum)
+			|| ((fanDiff2 = thermistor2Data.offsetSum - thermistor2Data.readingSum) < thermistorConnectedThreshold)
+			|| (fanDiff2 >= thermistorOnThreshold)
+#endif
+		   )
 		{
-			PORTA |= BITVAL(PortAFanControlBit);			// turn fan on
-			fanChangeCount = (fanOnSeconds * fanSampleFreq) - 1;
+			// We used to turn the fan on immediately, but now we delay it a little to try to improve noise immunity
+			if (fanChangeCount >= fanOnSeconds * thermistorSampleFreq)
+			{
+				PORTA |= BITVAL(PortAFanControlBit);		// turn fan on			
+			}
+			else
+			{
+				fanChangeCount += 4;						// the time we wait before turning the fan on is 1/4 of the time we wait before turning it off
+			}
 		}		
 	}
 	
@@ -347,8 +469,13 @@ inline void SetOutputOff()
 writes(volatile)
 {
 	// We do this is 2 operations, each of which is atomic, so that we don't mess up what the ISR is doing with the LEDs.
+#if DUAL_NOZZLE
+	PORTB &= ~BITVAL(PortBDuet10KOutputBit);
+	PORTA &= ~BITVAL(PortADuet12KOutputBit);
+#else
 	PORTA &= ~BITVAL(PortADuet10KOutputBit);
-	PORTA &= ~BITVAL(PortADuet13KOutputBit);
+	PORTA &= ~BITVAL(PortADuet12KOutputBit);
+#endif
 }
 
 // Give a G31 reading of about 445 indicating we are approaching the trigger point
@@ -356,8 +483,13 @@ inline void SetOutputApproaching()
 writes(volatile)
 {
 	// We do this is 2 operations, each of which is atomic, so that we don't mess up what the ISR is doing with the LEDs.
+#if DUAL_NOZZLE
+	PORTB &= ~BITVAL(PortBDuet10KOutputBit);
+	PORTA |= BITVAL(PortADuet12KOutputBit);
+#else
 	PORTA &= ~BITVAL(PortADuet10KOutputBit);
-	PORTA |= BITVAL(PortADuet13KOutputBit);
+	PORTA |= BITVAL(PortADuet12KOutputBit);
+#endif
 }	
 
 // Give a G31 reading of about 578 indicating we are at/past the trigger point
@@ -365,8 +497,13 @@ inline void SetOutputOn()
 writes(volatile)
 {
 	// We do this is 2 operations, each of which is atomic, so that we don't mess up what the ISR is doing with the LEDs.
-	PORTA &= ~BITVAL(PortADuet13KOutputBit);
+#if DUAL_NOZZLE
+	PORTB |= BITVAL(PortBDuet10KOutputBit);
+	PORTA &= ~BITVAL(PortADuet12KOutputBit);
+#else
 	PORTA |= BITVAL(PortADuet10KOutputBit);
+	PORTA &= ~BITVAL(PortADuet12KOutputBit);
+#endif
 }
 
 // Give a G31 reading of about 1023 indicating that the sensor is saturating
@@ -374,28 +511,29 @@ inline void SetOutputSaturated()
 writes(volatile)
 {
 	// We do this is 2 operations, each of which is atomic, so that we don't mess up what the ISR is doing with the LEDs.
+#if DUAL_NOZZLE
+	PORTB |= BITVAL(PortBDuet10KOutputBit);
+	PORTA |= BITVAL(PortADuet12KOutputBit);
+#else
 	PORTA |= BITVAL(PortADuet10KOutputBit);
-	PORTA |= BITVAL(PortADuet13KOutputBit);
+	PORTA |= BITVAL(PortADuet12KOutputBit);
+#endif
 }
 
 // Run the IR sensor and the fan
 void runIRsensorAndFan()
-writes(running; nearLedReadings; farLedReadings; offReadings; nearLedIndex; farLedIndex; offIndex; volatile)
+writes(running; nearData; farData; offData; volatile)
 writes(fanChangeCount; lastFanSampleTicks)
-pre(fanInvariant())
+pre(thermistor1Data.invar())
+#if DUAL_NOZZLE
+pre(thermistor2Data.invar())
+#endif
 {
 	running = false;
-
-	for (uint8_t i = 0; i < cyclesAveragedIR; ++i)
-	keep(i <= cyclesAveragedIR)
-	keep(forall j in 0..(i-1) :- nearLedReadings[j] == 0 && farLedReadings[j] == 0 && offReadings[j] == 0)
-	decrease(cyclesAveragedIR - i)
-	{
-		nearLedReadings[i] = farLedReadings[i] = offReadings[i] = 0;		
-	}
-	nearLedIndex = farLedIndex = offIndex = 0;
-	nearSumIR = farSumIR = offSumIR = 0;
-	assert(irInvariant());
+	
+	nearData.init();
+	farData.init();
+	offData.init();
 
 	cli();
 	// Set up timer 1 in mode 12
@@ -420,13 +558,16 @@ pre(fanInvariant())
 	lastFanSampleTicks = 0;
 
 	for (;;)
-	keep(irInvariant())
-	keep(fanInvariant())
+	keep(nearData.invar(); farData.invar(); offData.invar())
+	keep(thermistor1Data.invar())
+#if DUAL_NOZZLE
+	keep(thermistor2Data.invar())
+#endif
 	{
 		cli();
-		uint16_t locNearSum = nearSumIR;
-		uint16_t locFarSum = farSumIR;
-		uint16_t locOffSum = offSumIR;
+		uint16_t locNearSum = nearData.sum;
+		uint16_t locFarSum = farData.sum;
+		uint16_t locOffSum = offData.sum;
 		sei();
 			
 		if (locNearSum >= saturatedThreshold || locFarSum >= saturatedThreshold)
@@ -474,10 +615,10 @@ pre(fanInvariant())
 		cli();
 		uint16_t locTickCounter = tickCounter;
 		sei();
-		if (locTickCounter - lastFanSampleTicks >= fanSampleIntervalTicks)
+		if (locTickCounter - lastFanSampleTicks >= thermistorSampleIntervalTicks)
 		{
 			checkFan();
-			lastFanSampleTicks += fanSampleIntervalTicks;
+			lastFanSampleTicks += thermistorSampleIntervalTicks;
 		}
 	}
 }
@@ -487,21 +628,37 @@ pre(fanInvariant())
 int main(void)
 writes(volatile)
 writes(running)
-writes(nearLedReadings; farLedReadings; offReadings; nearLedIndex; farLedIndex; offIndex)	// IR variables
-writes(fanReadings; fanOffsets; fanIndex; fanChangeCount; lastFanSampleTicks)				// fan variables
-writes(fan1Kmode; thermistorConnectedThreshold; thermistorOffThreshold; thermistorOnThreshold)
+writes(nearData; farData; offData)	// IR variables
+writes(thermistor1Data)
+#if DUAL_NOZZLE
+writes(thermistor2Data)
+#endif
+writes(fanChangeCount; lastFanSampleTicks)				// fan variables
+writes(thermistor1Kmode; thermistorConnectedThreshold; thermistorOffThreshold; thermistorOnThreshold)
 {
 	cli();
-	DIDR0 = BITVAL(AdcPhototransistorChan) | BITVAL(AdcThermistorChan);
+#if DUAL_NOZZLE
+	DIDR0 = BITVAL(AdcPhototransistorChan) | BITVAL(AdcThermistor1Chan) | BITVAL(AdcThermistor2Chan);
+	// disable digital input buffers on ADC pins
+#else
+	DIDR0 = BITVAL(AdcPhototransistorChan) | BITVAL(AdcThermistor1Chan);
 															// disable digital input buffers on ADC pins
+#endif
 	// Set ports and pullup resistors
 	PORTA = BITVAL(PortADuetInputBit) | BITVAL(PortASeriesResistorSenseBit) | PortAUnusedBitMask;
 															// enable pullup on Duet input, series resistor sense input, and unused I/O pins
 	PORTB = PortBUnusedBitMask;								// enable pullup on unused I/O pins
 	
 	// Enable outputs
-	DDRA = BITVAL(PortAFanControlBit) | BITVAL(PortANearLedBit) | BITVAL(PortADuet10KOutputBit) | BITVAL(PortADuet13KOutputBit);
-#if ISR_DEBUG
+#if DUAL_NOZZLE
+	DDRA = BITVAL(PortAFanControlBit) | BITVAL(PortANearLedBit) | BITVAL(PortADuet12KOutputBit);
+#else
+	DDRA = BITVAL(PortAFanControlBit) | BITVAL(PortANearLedBit) | BITVAL(PortADuet10KOutputBit) | BITVAL(PortADuet12KOutputBit);
+#endif
+
+#if DUAL_NOZZLE
+	DDRB = PortBFarLedMask | BITVAL(PortBDuet10KOutputBit);	// enable LED and 12K outputs on port B
+#elif ISR_DEBUG
 	DDRB = PortBFarLedMask | BITVAL(PortBDebugPin);			// enable LED and debug outputs on port B
 #else
 	DDRB = PortBFarLedMask;									// enable LED outputs on port B
@@ -510,50 +667,39 @@ writes(fan1Kmode; thermistorConnectedThreshold; thermistorOffThreshold; thermist
 	// Wait 10ms to ensure that the power has stabilized before we read the series resistor sense pin
 	for (uint8_t i = 0; i < 40; ++i)
 	{
-		shortDelay(255);
+		shortDelay(255u);
 	}
-	fan1Kmode = ((PINA & BITVAL(PortASeriesResistorSenseBit)) != 0);
+	thermistor1Kmode = ((PINA & BITVAL(PortASeriesResistorSenseBit)) != 0);
 	
 	// Initialize the fan so that it won't come on at power up
 	uint16_t readingInit, offsetInit;
-	if (fan1Kmode)
+	if (thermistor1Kmode)
 	{
-		// When reading the thermistor, we run ADC in differential bipolar mode, gain = 20 (effective gain is 10 because full-scale is 512 not 1024)
-		thermistorConnectedThreshold = thermistorConnectedThreshold1K * fanSamplesAveraged;
-		thermistorOffThreshold = thermistorOffThreshold1K * fanSamplesAveraged;
-		thermistorOnThreshold = thermistorOnThreshold1K * fanSamplesAveraged;
+		// When reading the thermistor in 1K series resistor mode, we run ADC in differential bipolar mode, gain = 20 (effective gain is 10 because full-scale is 512 not 1024)
+		// We use the 1K mode sense pin as a +3.3V reference. Set it HIGH to reduce noise on it. We have already set the bit in the output register.
+		DDRA |= BITVAL(PortASeriesResistorSenseBit);
+		
+		thermistorConnectedThreshold = thermistorConnectedThreshold1K * thermistorSamplesAveraged;
+		thermistorOffThreshold = thermistorOffThreshold1K * thermistorSamplesAveraged;
+		thermistorOnThreshold = thermistorOnThreshold1K * thermistorSamplesAveraged;
 		offsetInit = 512;
 		readingInit = offsetInit - thermistorConnectedThreshold1K;
 	}
 	else
 	{
-		// When reading the thermistor, we run ADC in single-ended mode, gain = 1
-		thermistorConnectedThreshold = thermistorConnectedThreshold4K7 * fanSamplesAveraged;
-		thermistorOffThreshold = thermistorOffThreshold4K7 * fanSamplesAveraged;
-		thermistorOnThreshold = thermistorOnThreshold4K7 * fanSamplesAveraged;
+		// When reading the thermistor in 4.7K series resistor mode, we run ADC in single-ended mode, gain = 1
+		thermistorConnectedThreshold = thermistorConnectedThreshold4K7 * thermistorSamplesAveraged;
+		thermistorOffThreshold = thermistorOffThreshold4K7 * thermistorSamplesAveraged;
+		thermistorOnThreshold = thermistorOnThreshold4K7 * thermistorSamplesAveraged;
 		offsetInit = 1023;
 		readingInit = offsetInit - thermistorConnectedThreshold4K7;
 	}
 
-	fanReadingSum = 0;
-	fanOffsetSum = 0;
+	thermistor1Data.init(readingInit, offsetInit);
+#if DUAL_NOZZLE
+	thermistor2Data.init(readingInit, offsetInit);
+#endif
 
-	for (uint8_t i = 0; i < fanSamplesAveraged; ++i)
-	keep(i <= fanSamplesAveraged)
-	keep(forall j in 0..(i - 1) :- fanReadings[j] == readingInit)
-	keep(forall j in 0..(i - 1) :- fanOffsets[j] == offsetInit)
-	keep(fanReadingSum == + over fanReadings.take(i))
-	keep(fanOffsetSum == + over fanReadings.take(i))
-	decrease(fanSamplesAveraged - i)
-	{
-		fanReadings[i] = readingInit;
-		fanReadingSum += readingInit;		
-		fanOffsets[i] = offsetInit;
-		fanOffsetSum += offsetInit;
-	}
-	fanIndex = 0;
-	assert(fanInvariant());
-	
 	sei();
 
 #ifndef __ECV__												// eCv++ doesn't understand gcc assembler syntax
@@ -563,3 +709,43 @@ writes(fan1Kmode; thermistorConnectedThreshold; thermistorOffThreshold; thermist
 	runIRsensorAndFan();									// doesn't return
 	return 0;												// to keep gcc happy
 }
+
+// Initialize the IR data structure
+void IrData::init()
+{
+	for (uint8_t i = 0; i < cyclesAveragedIR; ++i)
+	writes(i; *this; volatile)
+	keep(i <= cyclesAveragedIR)
+	keep(forall j in 0..(i-1) :- readings[j] == 0)
+	decrease(cyclesAveragedIR - i)
+	{
+		readings[i] = 0;
+	}
+	index = 0;
+	sum = 0;
+}
+
+// Initialize the thermistor data structure
+void ThermistorData::init(uint16_t readingInit, uint16_t offsetInit)
+{
+	readingSum = 0;
+	offsetSum = 0;
+
+	for (uint8_t i = 0; i < thermistorSamplesAveraged; ++i)
+	writes(i; *this; volatile)
+	keep(i <= thermistorSamplesAveraged)
+	keep(forall j in 0..(i - 1) :- readings[j] == readingInit)
+	keep(forall j in 0..(i - 1) :- offsets[j] == offsetInit)
+	keep(readingSum == + over readings.take(i))
+	keep(offsetSum == + over offsets.take(i))
+	decrease(thermistorSamplesAveraged - i)
+	{
+		readings[i] = readingInit;
+		readingSum += readingInit;
+		offsets[i] = offsetInit;
+		offsetSum += offsetInit;
+	}
+	index = 0;
+}
+
+// End
