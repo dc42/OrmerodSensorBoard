@@ -47,7 +47,7 @@
 
 // PB0			far LED drive, active high
 // PB1			far LED drive, active high (paralleled with PB0)
-// PB2/OC0A		unused (single nozzle) OR ISR-DEBUG pin OR output to Duet voa 12K resistor (dual nozzle)
+// PB2/OC0A		unused (single nozzle) OR ISR-DEBUG pin OR output to Duet via 12K resistor (dual nozzle)
 // PB3/RESET	not available, used for programming
 
 __fuse_t __fuse __attribute__((section (".fuse"))) = {0xE2u, 0xDFu, 0xFFu};
@@ -138,12 +138,17 @@ IrData nearData, farData, offData;
 // Fan parameters
 const uint16_t thermistorSampleFreq = 16;
 const uint16_t thermistorSampleIntervalTicks = interruptFreq/thermistorSampleFreq;
+
+#if DUAL_NOZZLE
+const uint16_t thermistorSamplesAveraged = 8;			// reduced from 16 because it looks like we ran out of memory in the dual nozzle case
+#else
 const uint16_t thermistorSamplesAveraged = 16;
+#endif
 
 // Fan thresholds
 
 // Using a 1K series resistor, we use the ADC in differential mode with a gain of 1 and full scale resolution of 512, but we reverse the inputs so we effectively get 2x extra gain.
-const uint16_t thermistorConnectedThreshold1K = 30;	// we consider the hot end thermistor to be disconnected if we get this reading less than the reference, or a higher reading
+const uint16_t thermistorConnectedThreshold1K = 30;		// we consider the hot end thermistor to be disconnected if we get this reading less than the reference, or a higher reading
 const uint16_t thermistorOffThreshold1K = 340;			// we turn the fan off if we get this reading less than the reference (about 38C), or a higher reading
 const uint16_t thermistorOnThreshold1K = 400;			// we turn the fan on if we get this reading less than the reference (about 42C), or lower reading
 
@@ -199,8 +204,8 @@ bool running;
 
 
 // ISR for the timer 0 compare match A interrupt
-// This works on a cycle of 8 readings as follows:
-// leds off, far led on, near led on, leds off, far led on, near led on, discarded fan reading, fan reading
+// This works on a cycle of 16 readings as follows:
+// (leds off, far led on, near led on) x3, discarded fan reading x2, fan reading
 // The reason for this is that when we switch the ADC into differential mode to get reliable readings with a 1K series resistor,
 // the ADC subsystem needs extra time to settle down.
 ISR(TIM1_COMPB_vect)
@@ -227,7 +232,7 @@ post(thermistor2Data.invar())
 
 	uint16_t adcVal = ADC & 1023u;					// get the ADC reading from the previous conversion
 	uint8_t locTickCounter = (uint8_t)tickCounter;
-	while (TCNT1 < 3 * 64) {}						// delay a little until the ADC s/h has taken effect. 3 ADC clocks should be enough.
+	while (TCNT1 < 3 * 64) {}						// delay a little until the ADC s/h has taken effect. 3 ADC clocks should be enough, and 1 ADC clock is 64 of our clocks.
 	switch(locTickCounter & 0x0fu)
 	{
 		case 0:
@@ -311,7 +316,7 @@ post(thermistor2Data.invar())
 			}
 			else
 			{
-				ADMUX = AdcThermistor1Chan;			// select thermistor 1 (ADC3) as a single-ended input
+				ADMUX = (uint8_t)AdcThermistor1Chan;	// select thermistor 1 (ADC3) as a single-ended input
 			}
 #endif			
 			break;
@@ -335,39 +340,39 @@ post(thermistor2Data.invar())
 			break;
 
 		case 15:
-		// LEDs are off, we just did a fan reading, we are doing an off reading now and a far reading next
-		if (running)
-		{
-			ThermistorData* currentThermistor =
-#if DUAL_NOZZLE
-				((locTickCounter & 0x20u) == 0) ? &thermistor1Data : &thermistor2Data;
-#else
-				&thermistor1Data;
-#endif
-			if (thermistor1Kmode)
+			// LEDs are off, we just did a fan reading, we are doing an off reading now and a far reading next
+			if (running)
 			{
-				adcVal ^= 0x0200u;				// convert signed reading to unsigned biased by 512
-				if ((locTickCounter & 0x10u) != 0)
+				ThermistorData* currentThermistor =
+#if DUAL_NOZZLE
+					((locTickCounter & 0x20u) == 0) ? &thermistor1Data : &thermistor2Data;
+#else
+					&thermistor1Data;
+#endif
+				if (thermistor1Kmode)
+				{
+					adcVal ^= 0x0200u;				// convert signed reading to unsigned biased by 512
+					if ((locTickCounter & 0x10u) != 0)
+					{
+						currentThermistor->readingSum = currentThermistor->readingSum - currentThermistor->readings[currentThermistor->index] + adcVal;
+						currentThermistor->readings[currentThermistor->index] = adcVal;
+						currentThermistor->index = (currentThermistor->index + 1) & (thermistorSamplesAveraged - 1);
+					}
+					else
+					{
+						currentThermistor->offsetSum = currentThermistor->offsetSum - currentThermistor->offsets[currentThermistor->index] + adcVal;
+						currentThermistor->offsets[currentThermistor->index] = adcVal;
+					}
+				}
+				else
 				{
 					currentThermistor->readingSum = currentThermistor->readingSum - currentThermistor->readings[currentThermistor->index] + adcVal;
 					currentThermistor->readings[currentThermistor->index] = adcVal;
 					currentThermistor->index = (currentThermistor->index + 1) & (thermistorSamplesAveraged - 1);
 				}
-				else
-				{
-					currentThermistor->offsetSum = currentThermistor->offsetSum - currentThermistor->offsets[currentThermistor->index] + adcVal;
-					currentThermistor->offsets[currentThermistor->index] = adcVal;
-				}
 			}
-			else
-			{
-				currentThermistor->readingSum = currentThermistor->readingSum - currentThermistor->readings[currentThermistor->index] + adcVal;
-				currentThermistor->readings[currentThermistor->index] = adcVal;
-				currentThermistor->index = (currentThermistor->index + 1) & (thermistorSamplesAveraged - 1);
-			}
-		}
-		PORTB |= PortBFarLedMask;				// turn far LED on
-		break;
+			PORTB |= PortBFarLedMask;				// turn far LED on
+			break;
 	}
 	
 	++tickCounter;
@@ -468,7 +473,7 @@ writes(fanChangeCount; volatile)
 inline void SetOutputOff()
 writes(volatile)
 {
-	// We do this is 2 operations, each of which is atomic, so that we don't mess up what the ISR is doing with the LEDs.
+	// We do this in 2 operations, each of which is atomic, so that we don't mess up what the ISR is doing with the LEDs.
 #if DUAL_NOZZLE
 	PORTB &= ~BITVAL(PortBDuet10KOutputBit);
 	PORTA &= ~BITVAL(PortADuet12KOutputBit);
@@ -478,11 +483,11 @@ writes(volatile)
 #endif
 }
 
-// Give a G31 reading of about 445 indicating we are approaching the trigger point
+// Give a G31 reading of about 465 indicating we are approaching the trigger point
 inline void SetOutputApproaching()
 writes(volatile)
 {
-	// We do this is 2 operations, each of which is atomic, so that we don't mess up what the ISR is doing with the LEDs.
+	// We do this in 2 operations, each of which is atomic, so that we don't mess up what the ISR is doing with the LEDs.
 #if DUAL_NOZZLE
 	PORTB &= ~BITVAL(PortBDuet10KOutputBit);
 	PORTA |= BITVAL(PortADuet12KOutputBit);
@@ -492,11 +497,11 @@ writes(volatile)
 #endif
 }	
 
-// Give a G31 reading of about 578 indicating we are at/past the trigger point
+// Give a G31 reading of about 535 indicating we are at/past the trigger point
 inline void SetOutputOn()
 writes(volatile)
 {
-	// We do this is 2 operations, each of which is atomic, so that we don't mess up what the ISR is doing with the LEDs.
+	// We do this in 2 operations, each of which is atomic, so that we don't mess up what the ISR is doing with the LEDs.
 #if DUAL_NOZZLE
 	PORTB |= BITVAL(PortBDuet10KOutputBit);
 	PORTA &= ~BITVAL(PortADuet12KOutputBit);
@@ -510,7 +515,7 @@ writes(volatile)
 inline void SetOutputSaturated()
 writes(volatile)
 {
-	// We do this is 2 operations, each of which is atomic, so that we don't mess up what the ISR is doing with the LEDs.
+	// We do this in 2 operations, each of which is atomic, so that we don't mess up what the ISR is doing with the LEDs.
 #if DUAL_NOZZLE
 	PORTB |= BITVAL(PortBDuet10KOutputBit);
 	PORTA |= BITVAL(PortADuet12KOutputBit);
@@ -547,7 +552,7 @@ pre(thermistor2Data.invar())
 	TIMSK1 = BITVAL(OCIE1B);								// enable the timer 0 compare match B interrupt
 	TCCR1B |= BITVAL(CS10);									// start the clock
 	
-	ADMUX = BITVAL(MUX0);									// select input 1, single-ended mode
+	ADMUX = (uint8_t)AdcPhototransistorChan;				// select phototransistor input, single-ended mode
 	ADCSRA = BITVAL(ADEN) | BITVAL(ADATE) | BITVAL(ADPS2) | BITVAL(ADPS1);	// enable ADC, auto trigger enable, prescaler = 64 (ADC clock ~= 125kHz)
 	ADCSRB = BITVAL(ADTS2) | BITVAL(ADTS0) | BITVAL(BIN);	// start conversion on timer 1 compare match B, bipolar input mode when using differential inputs
 	tickCounter = 0;
