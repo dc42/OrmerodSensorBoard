@@ -1,1 +1,1 @@
-This folder contains the firmware sources for my differential IR boards. The firmware is compiled in Atmel Studio.
+This folder contains the firmware sources for my differential IR boards. The firmware is compiled in Atmel Studio. The .pdp files are for doing static checking or formal verification of the firmware using Escher C++ Verifier.
