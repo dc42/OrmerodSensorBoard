@@ -40,7 +40,8 @@
 
 __fuse_t __fuse __attribute__((section (".fuse"))) = {0xE2u, 0xDFu, 0xFFu};
 
-const unsigned int AdcPhototransistorChan = 2;
+const unsigned int AdcPhototransistorChan = 2;				// ADC channel for the phototransistor
+const unsigned int AdcPortBDuet10KOutputChan = 3;			// ADC channel for the 10K output bit, when we use it as an input
 const unsigned int PortBNearLedBit = 1;
 const unsigned int PortBFarLedBit = 0;
 const unsigned int PortBDuet10KOutputBit = 3;
@@ -57,7 +58,8 @@ const uint16_t interruptFreq = 8000;						// interrupt frequency. We run the IR 
 const uint16_t divisorIR = (uint16_t)(F_CPU/interruptFreq);
 const uint16_t prescalerIR = 8;								// needs to be high enough to get baseTopIR below 256
 const uint16_t baseTopIR = (divisorIR/prescalerIR) - 1;
-const uint16_t cyclesAveragedIR = 8;						// must be a power of 2, max 32 (unless we make onSumIR and offSumIR uint32_t)
+const uint16_t cyclesAveragedIR = 8;						// must be a power of 2, max 64 (unless we make onSumIR and offSumIR uint32_t)
+															// *** max is now 16 because we add the 3 sums when we sense the pullup resistor ***
 
 const uint16_t farThreshold = 10 * cyclesAveragedIR;		// minimum far reading for us to think the sensor is working properly
 const uint16_t simpleNearThreshold = 30 * cyclesAveragedIR;	// minimum reading to set output high in simple mode
@@ -104,9 +106,10 @@ struct IrData
 IrData nearData, farData, offData;
 	
 // General variables
-volatile uint16_t tickCounter;						// counts system ticks, lower 2 bits also used for ADC/LED state
-uint16_t lastKickTicks;								// when we last kicked the watchdog
-bool running;
+volatile uint16_t tickCounter = 0;					// counts system ticks, lower 2 bits also used for ADC/LED state
+uint16_t lastKickTicks = 0;							// when we last kicked the watchdog
+bool digitalOutput = false;
+bool running = false;
 
 
 // ISR for the timer 0 compare match A interrupt
@@ -124,33 +127,33 @@ post(nearData.invar(); farData.invar(); offData.invar())
 	switch(locTickCounter & 0x03u)
 	{
 		case 0:
-			// Far LED is on, we just did no reading, we are doing a far reading now and a near reading next
+			// Far LED is on, we just did no reading, we are doing a far reading now and an off reading next
 			PORTB &= ~BITVAL(PortBFarLedBit);		// turn far LED off
-			PORTB |= BITVAL(PortBNearLedBit);		// turn near LED on
 			break;
 		
 		case 1:
-			// Near LED is on, we just did a far reading, we are doing a near reading now and an off reading next			
+			// LEDs are off, we just did a far reading, we are doing a off reading now and a near reading next			
 			if (running)
 			{
 				farData.addReading(adcVal);
 			}
-			PORTB &= ~BITVAL(PortBNearLedBit);		// turn near LED off
+			PORTB |= BITVAL(PortBNearLedBit);		// turn near LED on
 			break;
 					
 		case 2:
-			// LEDs are off, we just did a near reading, we are doing an off reading now and a dummy off reading next
+			// Near LED is on, we just did an off reading, we are doing a near reading now and a dummy off reading next
 			if (running)
 			{
-				nearData.addReading(adcVal);
+				offData.addReading(adcVal);
 			}
+			PORTB &= ~BITVAL(PortBNearLedBit);		// turn near LED off
 			break;
 
 		case 3:
 			// Far LED is on, we just did an off reading, we are doing another off reading now which will be discarded
 			if (running)
 			{
-				offData.addReading(adcVal);
+				nearData.addReading(adcVal);
 			}
 			PORTB |= BITVAL(PortBFarLedBit);		// turn far LED on
 			break;
@@ -217,12 +220,46 @@ writes(volatile)
 	PORTB |= BITVAL(PortBDuet12KOutputBit);
 }
 
+// Get the tick counter from outside the ISR. As it's more than 8 bits long, we need to disable interrupts while fetching it.
+inline uint16_t GetTicks()
+{
+	cli();
+	uint16_t ticks = tickCounter;
+	sei();
+	return ticks;
+}
+
+// Check whether we need to kick the watchdog
+void CheckWatchdog()
+{
+	if (GetTicks() - lastKickTicks >= kickIntervalTicks)
+	{
+#ifndef __ECV__
+		wdt_reset();											// kick the watchdog
+#endif
+		lastKickTicks += kickIntervalTicks;
+	}
+}
+
+// Delay for a specified number of ticks
+void DelayTicks(uint16_t ticks)
+{
+	uint16_t startTicks = GetTicks();
+	for (;;)
+	{
+		CheckWatchdog();
+		if (GetTicks() - startTicks >= ticks)
+		{
+			break;
+		}
+	}
+}
+
 // Run the IR sensor and the fan
 void runIRsensor()
 writes(running; nearData; farData; offData; lastKickTicks; volatile)
 {
 	running = false;
-	
 	nearData.init();
 	farData.init();
 	offData.init();
@@ -239,16 +276,54 @@ writes(running; nearData; farData; offData; lastKickTicks; volatile)
 	TIMSK = BITVAL(OCIE0B);									// enable the timer 0 compare match B interrupt
 	TCCR0B |= BITVAL(CS01);									// start the clock, prescaler = 8
 	
-	ADMUX = (uint8_t)AdcPhototransistorChan;				// select input 1 = phototransistor, single ended mode
-	ADCSRA = BITVAL(ADEN) | BITVAL(ADATE) | BITVAL(ADPS2) | BITVAL(ADPS1);	// enable ADC, auto trigger enable, prescaler = 64 (ADC clock ~= 125kHz)
+	ADMUX = (uint8_t)AdcPortBDuet10KOutputChan;				// select the 10K resistor output bit, single ended mode
+	ADCSRA = BITVAL(ADEN) | BITVAL(ADPS2) | BITVAL(ADATE) | BITVAL(ADPS1);	// enable ADC, auto trigger enable, prescaler = 64 (ADC clock ~= 125kHz)
 	ADCSRB = BITVAL(ADTS2) | BITVAL(ADTS0);					// start conversion on timer 0 compare match B, unipolar input mode
 	tickCounter = 0;
 	lastKickTicks = 0;
 	sei();
 	
-	while (tickCounter < 4) {}								// ignore the readings from the first few interrupts after changing mode
-	running = true;											// tell interrupt handler to collect readings
+	// Determine whether to provide a digital output or a 4-state output.
+	// We do this by checking to see whether the connected electronics provided a pullup resistor on the output.
+	// If a pullup resistor is detected, we provide a digital output, else we provide an analog output.
+	// Wait a while before we do this test, so that Duet firmware has a chance to turn the internal pullup (50K to 150K) off,
+	// and Arduino/RAMPS firmware has a chance to turn the internal pullup (20K to 50K) on.
+	SetOutputOff();
+	DDRB &= ~BITVAL(PortBDuet10KOutputBit);					// set the pin to an input, pullup disabled because output is off
+	
+	// Wait 4 seconds, keeping the watchdog happy
+	DelayTicks(4);											// ignore the readings from the first few interrupts after changing mode
+	running = true;											// start collecting readings
+	DelayTicks(4 * interruptFreq);							// give the printer electronics time to enable/disable its pullup resistor
+	running = false;										// stop collecting readings
+	
+	// Readings have been collected into all three of nearData, farData, and offData.
+	// We are looking for a pullup resistor of no more than 75K on the output to indicate that we should use a digital output.
+	digitalOutput = offData.sum + nearData.sum + farData.sum >= (3600UL * cyclesAveragedIR * 1024UL * 3)/(75000UL + 3600UL);
+	
+	// Change back to normal operation mode
+	ADMUX = (uint8_t)AdcPhototransistorChan;				// select input 1 = phototransistor, single ended mode
+	DDRB |= BITVAL(PortBDuet10KOutputBit);					// set the pin back to being an output
 
+	// Flash the LED twice if we are providing a digital output, four times if we are providing an analog output
+	for (uint8_t flashesToGo = (digitalOutput) ? 2 : 4; flashesToGo != 0; )
+	{
+		SetOutputSaturated();								// turn LED on
+		DelayTicks(interruptFreq/4);
+		SetOutputOff();
+		DelayTicks(interruptFreq/4);
+		--flashesToGo;
+	}
+	
+	// Clear out the data and start collecting data from the phototransistor
+	nearData.init();
+	farData.init();
+	offData.init();
+
+	running = true;											// tell interrupt handler to collect readings
+	DelayTicks(4 * cyclesAveragedIR);						// wait until we have a full set of readings
+
+	// Start normal operation
 	for (;;)
 	keep(nearData.invar(); farData.invar(); offData.invar())
 	{
@@ -270,9 +345,16 @@ writes(running; nearData; farData; offData; lastKickTicks; volatile)
 			// Differential modulated IR sensor mode								
 			if (locNearSum > locFarSum && locFarSum >= farThreshold)
 			{
-				SetOutputOn();
+				if (digitalOutput)
+				{
+					SetOutputSaturated();
+				}
+				else
+				{
+					SetOutputOn();					
+				}
 			}
-			else if (locFarSum >= farThreshold && locNearSum * 6UL >= locFarSum * 5UL)
+			else if (locFarSum >= farThreshold && locNearSum * 6UL >= locFarSum * 5UL && !digitalOutput)
 			{
 				SetOutputApproaching();
 			}
@@ -281,19 +363,8 @@ writes(running; nearData; farData; offData; lastKickTicks; volatile)
 				SetOutputOff();
 			}
 		}
-	
-		// Check whether we need to kick the watchdog
-		cli();
-		uint16_t locTickCounter = tickCounter;
-		sei();
-		if (locTickCounter - lastKickTicks >= kickIntervalTicks)
-		{
-#ifndef __ECV__
-			wdt_reset();											// kick the watchdog
-#endif
-			lastKickTicks += kickIntervalTicks;
-		}
-	
+
+		CheckWatchdog();	
 	}
 }
 

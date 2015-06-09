@@ -202,12 +202,33 @@ uint8_t fanChangeCount;
 volatile uint16_t tickCounter;						// counts system ticks, lower 2 bits also used for ADC/LED state
 bool running;
 
+/* ISR for the timer 0 compare match A interrupt
+This works on a cycle of 16 readings as follows:
 
-// ISR for the timer 0 compare match A interrupt
-// This works on a cycle of 16 readings as follows:
-// (leds off, far led on, near led on) x3, discarded fan reading x2, fan reading
-// The reason for this is that when we switch the ADC into differential mode to get reliable readings with a 1K series resistor,
-// the ADC subsystem needs extra time to settle down.
+State	Just did	Doing now	New LED state	New ADC state
+0		Dummy off	Far			Off				(Phototransistor)
+1		Far			Off			Near			(Phototransistor)
+2		Off			Near		Off				(Phototransistor)
+3		Near		Dummy off	Far				(Phototransistor)
+4		Dummy off	Far			Off				(Phototransistor)
+5		Far			Off			Near			(Phototransistor)
+6		Off			Near		Off				(Phototransistor)
+7		Near		Dummy off	Far				(Phototransistor)
+8		Dummy off	Far			Off				(Phototransistor)
+9		Far			Off			Near			(Phototransistor)
+10		Off			Near		Off				Thermistor
+11		Near		Dummy fan	(Off)			(Thermistor)
+12		Dummy fan	Dummy fan	(Off)			(Thermistor)
+13		Dummy fan	Dummy fan	(Off)			(Thermistor)
+14		Dummy fan	Fan			(Off)			Phototransistor
+15		Fan			Dummy off	Far				(Phototransistor)
+
+This pattern takes account of the following:
+1. When we switch the ADC into differential mode to get reliable readings with a 1K series resistor, the ADC subsystem needs extra time to settle down.
+2. We want to measure the readings with near and far LEDs illuminated from the off-state in both cases, so that the slow phototransistor response affects
+   both readings equally.
+*/
+
 ISR(TIM1_COMPB_vect)
 writes(nearData; farData; offData)
 writes(thermistor1Data)
@@ -236,45 +257,48 @@ post(thermistor2Data.invar())
 	switch(locTickCounter & 0x0fu)
 	{
 		case 0:
-		case 3:
-		case 6:
-		case 9:
-			// Far LED is on, we just did an off reading, we are doing a far reading now and a near reading next
-			if (running)
-			{
-				offData.addReading(adcVal);
-			}
-			PORTB &= ~PortBFarLedMask;				// turn far LED on
-			PORTA |= BITVAL(PortANearLedBit);		// turn near LED on
-			break;
-		
-		case 1:
 		case 4:
-		case 7:
-			// Near LED is on, we just did a far reading, we are doing a near reading now and an off reading next			
+		case 8:
+			// Far LED is on, we just did a dummy off reading, we are doing a far reading now and an off reading next
+			PORTB &= ~PortBFarLedMask;				// turn far LED off
+			break;
+
+		case 1:
+		case 5:
+		case 9:
+			// LEDs are off, we just did a far reading, we are doing an off reading now and a near reading next			
 			if (running)
 			{
 				farData.addReading(adcVal);
 			}
+			PORTA |= BITVAL(PortANearLedBit);		// turn near LED on
+			break;
+
+		case 2:
+		case 6:
+			// Near LED is on, we just did a, off reading, we are doing a near reading now and a dummy off reading next
+			if (running)
+			{
+				offData.addReading(adcVal);
+			}
 			PORTA &= ~BITVAL(PortANearLedBit);		// turn near LED off
 			break;
-					
-		case 2:
-		case 5:
-		case 8:
-			// LEDs are off, we just did a near reading, we are doing an off reading now and a far reading next
+
+		case 3:
+		case 7:
+			// LEDs are off, we just did a near reading, we are doing a dummy off reading now and a far reading next
 			if (running)
 			{
 				nearData.addReading(adcVal);
 			}
 			PORTB |= PortBFarLedMask;				// turn far LED on
 			break;
-
+			
 		case 10:
-			// Near LED is on, we just did a far reading, we are doing a near reading now and a fan reading next
+			// Near LED is on, we just did an off reading, we are doing a near reading now and a fan reading next
 			if (running)
 			{
-				farData.addReading(adcVal);
+				offData.addReading(adcVal);
 			}
 			PORTA &= ~BITVAL(PortANearLedBit);		// turn near LED off
 
@@ -335,7 +359,7 @@ post(thermistor2Data.invar())
 			break;
 
 		case 14:
-			// LEDs are off, we just did a dummy fan reading, we are doing another fan reading now and an off reading next
+			// LEDs are off, we just did a dummy fan reading, we are doing another fan reading now and a dummy off reading next
 			ADMUX = (uint8_t)AdcPhototransistorChan;	// select input 1 = phototransistor
 			break;
 
