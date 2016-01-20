@@ -2,15 +2,22 @@
  * MiniLedSensor.cpp
  *
  * Created: 03/05/2015 11:06:12
- *  Author: David
+ *  Author: David Crocker, Escher Technologies Ltd.
+ * Licensed under the GNU General Public License version 3. See http://www.gnu.org/licenses/gpl-3.0.en.html.
+ * This software is supplied WITHOUT WARRANTY except when it is supplied pre-programmed into
+ * an electronic device that was manufactured by or for Escher Technologies Limited.
  */ 
+
+// Version 3: changed modulation scheme to allow for charging/discharging of phototransistor base-collector capacitance
+// Version 4: increased maximum value of the pullup resistor we look for to 150K, because it is higher on the Arduino Due
+// Version 5: increased maximum value of the pullup resistor we look for to 160K, to get reliable results with the 150K resistor in the test rig
+// Version 6: Don't enable pullup resistor on phototransistor input
 
 #include "ecv.h"
 
 #ifdef __ECV__
 #define __attribute__(_x)
 #define __volatile__
-#define __DOXYGEN__				// this avoids getting the wrong definitions for uint32_t etc.
 #endif
 
 #ifdef __ECV__
@@ -24,6 +31,10 @@
 
 #ifdef __ECV__
 #pragma ECV verifyincludefiles
+#undef cli
+#undef sei
+extern void cli();
+extern void sei();
 #endif
 
 #define ISR_DEBUG	(0)		// set nonzero to use PB2 as debug output pin
@@ -38,7 +49,9 @@
 // PB4/ADC2			input from phototransistor
 // PB5/ADC0/RESET	not available, used for programming
 
+#ifndef __ECV__
 __fuse_t __fuse __attribute__((section (".fuse"))) = {0xE2u, 0xDFu, 0xFFu};
+#endif
 
 const unsigned int AdcPhototransistorChan = 2;				// ADC channel for the phototransistor
 const unsigned int AdcPortBDuet10KOutputChan = 3;			// ADC channel for the 10K output bit, when we use it as an input
@@ -47,7 +60,7 @@ const unsigned int PortBFarLedBit = 0;
 const unsigned int PortBDuet10KOutputBit = 3;
 const unsigned int PortBDuet12KOutputBit = 2;
 
-const uint8_t PortBUnusedBitMask = BITVAL(4);
+const uint8_t PortBUnusedBitMask = 0;
 
 // Approximate MPU frequency (8MHz internal oscillator)
 const uint32_t F_CPU = 8000000uL;
@@ -57,13 +70,12 @@ const uint16_t interruptFreq = 8000;						// interrupt frequency. We run the IR 
 															// highest usable value is about 9.25kHz because the ADC needs 13.5 clock cycles per conversion.
 const uint16_t divisorIR = (uint16_t)(F_CPU/interruptFreq);
 const uint16_t prescalerIR = 8;								// needs to be high enough to get baseTopIR below 256
-const uint16_t baseTopIR = (divisorIR/prescalerIR) - 1;
+const uint16_t baseTopIR = (divisorIR/prescalerIR) - 1u;
 const uint16_t cyclesAveragedIR = 8;						// must be a power of 2, max 64 (unless we make onSumIR and offSumIR uint32_t)
 															// *** max is now 16 because we add the 3 sums when we sense the pullup resistor ***
 
-const uint16_t farThreshold = 10 * cyclesAveragedIR;		// minimum far reading for us to think the sensor is working properly
-const uint16_t simpleNearThreshold = 30 * cyclesAveragedIR;	// minimum reading to set output high in simple mode
-const uint16_t saturatedThreshold = 870 * cyclesAveragedIR;	// minimum reading for which we consider the sensor saturated
+const uint16_t farThreshold = 10u * cyclesAveragedIR;		// minimum far reading for us to think the sensor is working properly
+const uint16_t saturatedThreshold = 870u * cyclesAveragedIR; // minimum reading for which we consider the sensor saturated
 
 const uint16_t kickFreq = 16;
 const uint16_t kickIntervalTicks = interruptFreq/kickFreq;
@@ -85,7 +97,7 @@ struct IrData
 	{
 		sum = sum - readings[index] + arg;
 		readings[index] = arg;
-		index = static_cast<irIndex_t>((index + 1) % cyclesAveragedIR);
+		index = static_cast<irIndex_t>((index + 1u) % cyclesAveragedIR);
 	}
 	
 	void init()
@@ -115,7 +127,11 @@ bool running = false;
 // ISR for the timer 0 compare match A interrupt
 // This works on a cycle of 4 readings as follows:
 // far led on, near led on, leds off, null
+#ifdef __ECV__
+void TIM0_COMPB_vect()
+#else
 ISR(TIM0_COMPB_vect)
+#endif
 writes(nearData; farData; offData)
 writes(volatile)
 pre(nearData.invar(); farData.invar(); offData.invar())
@@ -123,7 +139,7 @@ post(nearData.invar(); farData.invar(); offData.invar())
 {
 	uint16_t adcVal = ADC & 1023u;					// get the ADC reading from the previous conversion
 	uint8_t locTickCounter = (uint8_t)tickCounter;
-	while (TCNT0 < 3 * 8) {}						// delay a little until the ADC s/h has taken effect. 3 ADC clocks should be enough, and 1 ADC clock is 8 timer 0 clocks.
+	while (TCNT0 < 3u * 8u) {}						// delay a little until the ADC s/h has taken effect. 3 ADC clocks should be enough, and 1 ADC clock is 8 timer 0 clocks.
 	switch(locTickCounter & 0x03u)
 	{
 		case 0:
@@ -222,6 +238,7 @@ writes(volatile)
 
 // Get the tick counter from outside the ISR. As it's more than 8 bits long, we need to disable interrupts while fetching it.
 inline uint16_t GetTicks()
+writes(volatile)
 {
 	cli();
 	uint16_t ticks = tickCounter;
@@ -231,6 +248,7 @@ inline uint16_t GetTicks()
 
 // Check whether we need to kick the watchdog
 void CheckWatchdog()
+writes(lastKickTicks; volatile)
 {
 	if (GetTicks() - lastKickTicks >= kickIntervalTicks)
 	{
@@ -243,6 +261,7 @@ void CheckWatchdog()
 
 // Delay for a specified number of ticks
 void DelayTicks(uint16_t ticks)
+writes(lastKickTicks; volatile)
 {
 	uint16_t startTicks = GetTicks();
 	for (;;)
@@ -257,7 +276,7 @@ void DelayTicks(uint16_t ticks)
 
 // Run the IR sensor and the fan
 void runIRsensor()
-writes(running; nearData; farData; offData; lastKickTicks; volatile)
+writes(running; nearData; farData; offData; lastKickTicks; digitalOutput; volatile)
 {
 	running = false;
 	nearData.init();
@@ -292,26 +311,27 @@ writes(running; nearData; farData; offData; lastKickTicks; volatile)
 	DDRB &= ~BITVAL(PortBDuet10KOutputBit);					// set the pin to an input, pullup disabled because output is off
 	
 	// Wait 4 seconds, keeping the watchdog happy
-	DelayTicks(4);											// ignore the readings from the first few interrupts after changing mode
+	DelayTicks(4u);											// ignore the readings from the first few interrupts after changing mode
 	running = true;											// start collecting readings
-	DelayTicks(4 * interruptFreq);							// give the printer electronics time to enable/disable its pullup resistor
+	DelayTicks(4u * interruptFreq);							// give the printer electronics time to enable/disable its pullup resistor
 	running = false;										// stop collecting readings
 	
 	// Readings have been collected into all three of nearData, farData, and offData.
 	// We are looking for a pullup resistor of no more than 75K on the output to indicate that we should use a digital output.
-	digitalOutput = offData.sum + nearData.sum + farData.sum >= (3600UL * cyclesAveragedIR * 1024UL * 3)/(75000UL + 3600UL);
+	// DC 2014-08-04 we now look for no more than 160K, because on the Arduino Due the pullups are in the range 50K-150K.
+	digitalOutput = offData.sum + nearData.sum + farData.sum >= (3600UL * cyclesAveragedIR * 1024UL * 3u)/(160000UL + 3600UL);
 	
 	// Change back to normal operation mode
 	ADMUX = (uint8_t)AdcPhototransistorChan;				// select input 1 = phototransistor, single ended mode
 	DDRB |= BITVAL(PortBDuet10KOutputBit);					// set the pin back to being an output
 
 	// Flash the LED twice if we are providing a digital output, four times if we are providing an analog output
-	for (uint8_t flashesToGo = (digitalOutput) ? 2 : 4; flashesToGo != 0; )
+	for (uint8_t flashesToGo = (digitalOutput) ? 2u : 4u; flashesToGo != 0u; )
 	{
 		SetOutputSaturated();								// turn LED on
-		DelayTicks(interruptFreq/4);
+		DelayTicks(interruptFreq/4u);
 		SetOutputOff();
-		DelayTicks(interruptFreq/4);
+		DelayTicks(interruptFreq/4u);
 		--flashesToGo;
 	}
 	
@@ -321,7 +341,7 @@ writes(running; nearData; farData; offData; lastKickTicks; volatile)
 	offData.init();
 
 	running = true;											// tell interrupt handler to collect readings
-	DelayTicks(4 * cyclesAveragedIR);						// wait until we have a full set of readings
+	DelayTicks(4u * cyclesAveragedIR);						// wait until we have a full set of readings
 
 	// Start normal operation
 	for (;;)
@@ -343,7 +363,7 @@ writes(running; nearData; farData; offData; lastKickTicks; volatile)
 			locFarSum = (locFarSum > locOffSum) ? locFarSum - locOffSum : 0;
 			
 			// Differential modulated IR sensor mode								
-			if (locNearSum > locFarSum && locFarSum >= farThreshold)
+			if (locFarSum >= farThreshold && locNearSum > locFarSum)
 			{
 				if (digitalOutput)
 				{
@@ -354,7 +374,7 @@ writes(running; nearData; farData; offData; lastKickTicks; volatile)
 					SetOutputOn();					
 				}
 			}
-			else if (locFarSum >= farThreshold && locNearSum * 6UL >= locFarSum * 5UL && !digitalOutput)
+			else if (!digitalOutput && locFarSum >= farThreshold && locNearSum * 6UL >= locFarSum * 5UL)
 			{
 				SetOutputApproaching();
 			}
@@ -372,8 +392,9 @@ writes(running; nearData; farData; offData; lastKickTicks; volatile)
 // Main program
 int main(void)
 writes(volatile)
-writes(running)
+writes(running; digitalOutput)
 writes(nearData; farData; offData)	// IR variables
+writes(lastKickTicks)
 {
 	cli();
 	DIDR0 = BITVAL(AdcPhototransistorChan);					// disable digital input buffers on ADC pins
